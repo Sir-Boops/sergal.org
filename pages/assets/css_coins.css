@@ -1,0 +1,14 @@
+@font-face {
+  font-family: "HighTide";
+  src: url(https://cdn.frgl.pw/frglpw/HighTide.otf) format("opentype");
+}
+
+.text{
+  color: white;
+  text-align: center;
+}
+
+#title{
+    font-size: 70px;
+    font-weight: unset;
+}

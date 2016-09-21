@@ -5,6 +5,9 @@ var fs = require('fs');
 //Strings
 var index = fs.readFileSync(__dirname + '/pages/index.html', 'UTF8');
 var mirror_index = fs.readFileSync(__dirname + '/pages/index_mirror.html', 'UTF8');
+var coins_index = fs.readFileSync(__dirname + '/pages/index_coins.html', 'UTF8');
+
+//Serve Up Root Page
 app.get('/', function(req, res) {
     //Check if IPv4 or IPv6
     var ip = req.headers['x-real-ip'];
@@ -19,9 +22,15 @@ app.get('/', function(req, res) {
     };
 });
 
-//Serve Up Mirror Site
+//Serve Up Mirror Page
 app.get('/mirror*', function(req, res) {
     res.write(mirror_index);
+    res.send();
+});
+
+//Serve Up Coins Page
+app.get('/coins*', function(req, res) {
+    res.write(coins_index);
     res.send();
 });
 
