@@ -7,14 +7,14 @@ var index = fs.readFileSync(__dirname + '/pages/index.html', 'UTF8');
 var mirror_index = fs.readFileSync(__dirname + '/pages/index_mirror.html', 'UTF8');
 app.get('/', function(req, res) {
     //Check if IPv4 or IPv6
-    var ip = req.headers['x-real-ip'];
+    var ip = "::1"//req.headers['x-real-ip'];
 
     if (validator.isIP(ip, 4)) {
         //Write To The Data Stream
-        res.write(index.replace(/%ip_hello%/, '<h3 style="color: white; text-align: center;">Hello %userip%, i see you are using IPv4...WHY U NO USE IPv6! :(</h3>').replace(/%userip%/g, ip));
+        res.write(index.replace(/%ip_hello%/, '<h3 class="pure-u-1-1 text">Hello %userip%, i see you are using IPv4...WHY U NO USE IPv6! :(</h3>').replace(/%userip%/g, ip));
         res.send();
     } else {
-        res.write(index.replace(/%ip_hello%/, '<h3 style="color: white; text-align: center;">Hello %userip%, i see you are using IPv6 good job <3</h3>').replace(/%userip%/g, ip));
+        res.write(index.replace(/%ip_hello%/, '<h3 class="pure-u-1-1 text">Hello %userip%, i see you are using IPv6 good job <3</h3>').replace(/%userip%/g, ip));
         res.send();
     };
 });

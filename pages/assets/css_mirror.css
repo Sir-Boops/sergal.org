@@ -3,19 +3,12 @@
   src: url(https://cdn.frgl.pw/frglpw/HighTide.otf) format("opentype");
 }
 
-#splash {
-    position: relative;
-}
-#title{
-    color: white;
-    text-align: center;
-    font-size: 70px;
-    font-weight: unset;
+.text{
+  color: white;
+  text-align: center;
 }
 
-.center {
-  position: relative;
-  top: 25%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+#title{
+    font-size: 70px;
+    font-weight: unset;
 }
