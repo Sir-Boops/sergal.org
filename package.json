@@ -3,6 +3,7 @@
     "description": "Frgl.pw Site",
     "author": "Sir_Boops <admin@boops.me>",
     "license": "GPL-3.0",
+    "repository": "https://git.frgl.pw/Frgl/Frgl-Site",
     "homepage": "https://git.frgl.pw/Frgl/Frgl-Site",
     "bugs": "https://git.frgl.pw/Frgl/Frgl-Site/issues",
     "dependencies": {

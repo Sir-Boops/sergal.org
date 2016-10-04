@@ -14,10 +14,10 @@ app.get('/', function(req, res) {
 
     if (validator.isIP(ip, 4)) {
         //Write To The Data Stream
-        res.write(index.replace(/%ip_hello%/, '<h3 class="pure-u-1-1 text">Hello %userip%, i see you are using IPv4...WHY U NO USE IPv6! :(</h3>').replace(/%userip%/g, ip));
+        res.write(index.replace(/%ip_hello%/, '<h3 class="pure-u-1-1 text">Hello %userip%, I see you are using IPv4. You should really look into IPv6.</h3>').replace(/%userip%/g, ip));
         res.send();
     } else {
-        res.write(index.replace(/%ip_hello%/, '<h3 class="pure-u-1-1 text">Hello %userip%, i see you are using IPv6 good job <3</h3>').replace(/%userip%/g, ip));
+        res.write(index.replace(/%ip_hello%/, '<h3 class="pure-u-1-1 text">Hello %userip%, I see you are using IPv6. Thank you.</h3>').replace(/%userip%/g, ip));
         res.send();
     };
 });
