@@ -1,10 +1,10 @@
 <?php
 
 //Set the host IP
-if($_SERVER['FORWARDED_FOR'] == null){
+if($_SERVER['X-Real-IP'] == null){
   $user_IP = $_SERVER['REMOTE_ADDR'];
 } else {
-  $user_IP = $_SERVER['FORWARDED_FOR'];
+  $user_IP = $_SERVER['X-Real-IP'];
 }
 
 //Check if IPv4 or IPv6
