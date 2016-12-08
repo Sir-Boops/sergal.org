@@ -1,10 +1,12 @@
 <?php
 
+$headers = apache_request_headers();
+
 //Set the host IP
-if($_SERVER['X-Real-IP'] == null){
+if($headers["X-Real-IP"] == null){
   $user_IP = $_SERVER['REMOTE_ADDR'];
 } else {
-  $user_IP = $_SERVER['X-Real-IP'];
+  $user_IP = $headers["X-Real-IP"];
 }
 
 //Check if IPv4 or IPv6
