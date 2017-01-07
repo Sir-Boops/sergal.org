@@ -1,7 +1,5 @@
 <?php
 
-$headers = apache_request_headers();
-
 //Set the host IP
 if($headers["X-Real-IP"] == null){
   $user_IP = $_SERVER['REMOTE_ADDR'];
