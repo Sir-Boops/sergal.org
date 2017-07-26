@@ -1,23 +1,23 @@
-<?php
+<html>
 
-//Set the host IP
-if($headers["X-Real-IP"] == null){
-  $user_IP = $_SERVER['REMOTE_ADDR'];
-} else {
-  $user_IP = $headers["X-Real-IP"];
-}
+<head>
+	<meta charset="UTF-8">
+	<title>Sergal</title>
+	<link rel="stylesheet" type="text/css" href="assets/css.css">
+	<link rel="stylesheet" href="https://unpkg.com/purecss@1.0.0/build/pure-min.css" integrity="sha384-nn4HPE8lTHyVtfCBi5yW9d20FjT8BJwUXyWZT9InLYax14RDjBj46LmSztkmNP9w" crossorigin="anonymous">
+</head>
 
-//Check if IPv4 or IPv6
-if(strpos($user_IP, ".") === false){
-  //It's IPv6
-  $ip_hello = str_replace("%userip%", $user_IP, '<h3 class="pure-u-1-1 text">Hello %userip%, I see you are using IPv6. Thank you.</h3>');
-} else {
-  //It's IPv4
-  $ip_hello = str_replace("%userip%", $user_IP, '<h3 class="pure-u-1-1 text">Hello %userip%, I see you are using IPv4. You should really look into IPv6.</h3>');
-}
+<body style="background-color: #FFFFFF;" style="height: 100%; width: 100%;">
+	<div id="filler" style="height: 33%; width: 100%">
+	</div>
+	<div id="splash" class="pure-g">
+		<h1 class="pure-u-1-1 text" id="frgl-pw">Sergal</h1>
+		<h4 class="pure-u-1-1 text">Pronounced Sir-Gul</h4>
+		<h3 class="pure-u-1-1 text"><a class="text" href="https://twitter.com/SergalOrg">Announcements</a></h3>
+		<h3 class="pure-u-1-1 text"><a class="text" href="mirror/">Mirror Info</a>, <a style="color: black;" href="mailto:admin@sergal.org">E-Mail</a>
+		<h3 class="pure-u-1-1 text"><a class="text" href="//git.frgl.pw">Git Server</a></h3>
+	</div>
+	<p style="color: grey; position: absolute; bottom: -15px; right: 10px;">Page source available <a style="color: grey;" href="https://git.frgl.pw/Sir_Boops/Frgl-Site.git/">Here</a></p>
+</body>
 
-$index = str_replace("%ip_message%", $ip_hello, file_get_contents("assets/html.html"));
-
-echo $index;
-
- ?>
+</html>
