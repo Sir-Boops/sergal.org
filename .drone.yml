@@ -11,5 +11,5 @@ pipeline:
         acl: public-read
         delete: true
         metadata:
-            "host-meta":
-                Website-Redirect-Location: "https://mastodon.sergal.org/.well-known/host-meta"
+            "*host-meta":
+                "Website-Redirect-Location": "https://mastodon.sergal.org/.well-known/host-meta"
