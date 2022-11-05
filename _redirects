@@ -1,2 +1,2 @@
 https://sergal.org/.well-known/host-meta https://mastodon.sergal.org/.well-known/host-meta 302!
-https://sergal.org/.well-known/webfinger resource=:resource https://mastodon.sergal.org/.well-known/webfinger?resource=:resource 302!
+https://sergal.org/.well-known/webfinger https://mastodon.sergal.org/.well-known/webfinger?resource=:resource 302!
