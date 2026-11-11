@@ -49,7 +49,7 @@ function originalMediaMarkup(media) {
   const ratio = size ? ` style="--media-ratio:${size.width} / ${size.height};--media-width:${size.width}px"` : '';
 
   if (media.type === 'image') {
-    player = `<a class="original-media-image"${ratio} href="${href}" target="_blank" rel="noopener noreferrer"><img src="${href}"${dimensions} alt="${description}" decoding="async" referrerpolicy="no-referrer"></a>`;
+    player = `<a class="original-media-image is-loading"${ratio} href="${href}" target="_blank" rel="noopener noreferrer"><img src="${href}"${dimensions} alt="${description}" decoding="async" referrerpolicy="no-referrer"></a>`;
   } else if (media.type === 'video' || media.type === 'gifv') {
     const poster = safeURL(media.preview_url);
     player = `<video controls playsinline preload="auto"${dimensions}${ratio} src="${href}"${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${description}"></video>`;
@@ -92,7 +92,14 @@ function timelineAvatar(account, name) {
   return `<span class="avatar timeline-avatar" aria-hidden="true"><span>${initials}</span>${image}</span>`;
 }
 
+function finishImageLoading(image) {
+  if (image.tagName !== 'IMG') return;
+  image.closest('.original-media-image')?.classList.remove('is-loading');
+}
+
+$('main').addEventListener('error', event => finishImageLoading(event.target), true);
 $('main').addEventListener('load', event => {
+  finishImageLoading(event.target);
   if (event.target.classList.contains('timeline-avatar-image')) {
     event.target.classList.add('loaded');
   }
