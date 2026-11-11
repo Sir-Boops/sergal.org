@@ -102,3 +102,11 @@ article[data-status] { cursor: pointer; }
 }
 .original-media video { width: 100%; background: #111; }
 .original-media audio { display: block; width: 100%; }
+
+.custom-emoji {
+  display: inline-block;
+  width: 1.35em;
+  height: 1.35em;
+  vertical-align: -0.27em;
+  object-fit: contain;
+}
