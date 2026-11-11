@@ -2,7 +2,17 @@
 const SCOPES='read:accounts read:statuses read:bookmarks read:favourites write:statuses write:bookmarks write:favourites';
 let accountSession=null, me=null, livePosts=[], nextPage=null, requestNumber=0, replyTo=null, pendingPost=null;
 const safeURL=value=>{try{const u=new URL(value);return u.protocol==='https:'?u.href:''}catch{return ''}};
-function serverOrigin(value){let v=value.trim();if(v.startsWith('@'))v=v.split('@').pop();const u=new URL(v.includes('://')?v:'https://'+v);if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash||u.pathname!=='/'||!u.hostname.includes('.')||u.port)throw Error('Enter your server domain, for example mastodon.social.');return u.origin}
+function serverOrigin(value) {
+  const input = value.trim();
+  const domain = input.startsWith('@') ? input.split('@').pop() : input;
+  const url = new URL(domain.includes('://') ? domain : 'https://' + domain);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash ||
+      url.pathname !== '/' || !url.hostname.includes('.') || url.port) {
+    throw Error('Enter your server domain, for example mastodon.sergal.org.');
+  }
+  // Sergal accounts use sergal.org as their handle domain.
+  return url.hostname === 'sergal.org' ? 'https://mastodon.sergal.org' : url.origin;
+}
 const randomString=()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 async function challenge(verifier){return btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier))))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
 async function request(origin,path,{token,method='GET',body,headers={}}={}){let response;try{response=await fetch(origin+path,{method,mode:'cors',credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(25000),headers:{...(token?{Authorization:`Bearer ${token}`} :{}),...headers},body:body?new URLSearchParams(body):undefined})}catch{throw Error('Could not reach your server. Check your connection and that it allows browser clients, then try again.')}let data;try{data=await response.json()}catch{data={}}if(!response.ok){const message=response.status===401?'Your session has expired. Sign out and sign in again.':response.status===429?'Your server is limiting requests. Please wait a moment and retry.':String(data.error_description||data.error||`Server returned ${response.status}.`);throw Error(message)}return {data,response}}
@@ -27,3 +37,9 @@ document.addEventListener('input',e=>{if(accountSession&&e.target.id==='search')
 document.addEventListener('change',e=>{if(!accountSession)return;const id=e.target.id.replace('modal','');if(['compact','saver'].includes(id)){e.stopImmediatePropagation();state[id]=e.target.checked;save();renderLive()}},true);
 $('#signinTop').onclick=openAccount;$('#accountClose').onclick=()=>$('#accountDialog').close();$('#signinForm').onsubmit=startLogin;$('#signout').onclick=logout;$('#loadmore').onclick=()=>loadTimeline(true);$('#cancelreply').onclick=()=>{replyTo=null;$('#replylabel').textContent='';$('#cancelreply').hidden=true};
 finishLogin();
+
+window.addEventListener('pageshow', event => {
+  if (!event.persisted) return;
+  $('#signinSubmit').disabled = false;
+  authMessage('');
+});
