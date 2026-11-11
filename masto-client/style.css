@@ -91,3 +91,14 @@ article[data-status] { cursor: pointer; }
 #threadStatus:empty { display: none; }
 #threadContent h2 { margin: 0; padding: 18px 25px; border-bottom: 1px solid var(--line); font-size: 16px; }
 #threadContent section + section { border-top: 4px solid var(--bg); }
+
+.original-media { margin-top: 13px; }
+.original-media-image { display: block; width: fit-content; max-width: 100%; }
+.original-media :is(img, video) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 9px;
+}
+.original-media video { width: 100%; background: #111; }
+.original-media audio { display: block; width: 100%; }

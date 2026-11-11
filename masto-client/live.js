@@ -25,7 +25,38 @@ function imagePreview(media) {
   return safeURL(media.preview_url) || safeURL(media.url);
 }
 
-function attachmentMarkup(media, post, requiresReveal, prioritizeImages) {
+function originalMediaMarkup(media) {
+  const url = safeURL(media.url) || safeURL(media.remote_url);
+  const imageURL = url || (media.type === 'image' ? imagePreview(media) : '');
+  if (!imageURL) return '';
+  const href = esc(imageURL);
+  const description = esc(media.description || 'Post attachment');
+  let player = '';
+
+  if (media.type === 'image') {
+    const {width, height} = media.meta?.original || {};
+    const dimensions = Number.isInteger(width) && width > 0 && Number.isInteger(height) && height > 0
+      ? ` width="${width}" height="${height}"` : '';
+    player = `<a class="original-media-image" href="${href}" target="_blank" rel="noopener noreferrer"><img src="${href}"${dimensions} alt="${description}" decoding="async" referrerpolicy="no-referrer"></a>`;
+  } else if (media.type === 'video' || media.type === 'gifv') {
+    const poster = safeURL(media.preview_url);
+    player = `<video controls playsinline preload="metadata" src="${href}"${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${description}"></video>`;
+  } else if (media.type === 'audio') {
+    player = `<audio controls preload="metadata" src="${href}" aria-label="${description}"></audio>`;
+  }
+
+  return `<div class="original-media">${player}<a class="media-link" href="${href}" target="_blank" rel="noopener noreferrer">Open full-size media ↗</a></div>`;
+}
+
+function attachmentMarkup(media, post, requiresReveal, prioritizeImages, fullMedia) {
+  if (fullMedia) {
+    if (!safeURL(media.url) && !safeURL(media.remote_url) &&
+        !(media.type === 'image' && imagePreview(media))) return '';
+    if (requiresReveal) {
+      return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" data-full-media>▧ ${esc(media.description || 'Load media')}</button>`;
+    }
+    return originalMediaMarkup(media);
+  }
   const description = esc(media.description || 'Post image');
   if (media.type === 'image') {
     const preview = imagePreview(media);
@@ -55,7 +86,7 @@ $('main').addEventListener('load', event => {
   }
 }, true);
 
-function statusMarkup(wrapper, prioritizeImages = false){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${esc(plainContent(p.content))}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,hidden||state.saver,prioritizeImages===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}${link?`<a class="original" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open original ↗</a>`:''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${esc(wrapper.account.display_name||wrapper.account.username)} boosted</small>`:''}<div class="posttop">${timelineAvatar(a, name)}<div class="author"><b>${esc(name)}</b><small>@${esc(a.acct)}</small></div><a class="thread-link" data-open-thread="${esc(p.id)}" href="?post=${encodeURIComponent(p.id)}" aria-label="Open post and replies"><time class="time" datetime="${esc(p.created_at)}">${esc(new Date(p.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</time></a></div><div class="body">${hidden?`<details><summary>${esc(p.spoiler_text||'Sensitive or filtered content')} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${esc(p.replies_count ?? 0)}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${esc(p.reblogs_count ?? 0)}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>♡</span>${esc(p.favourites_count ?? 0)}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
+function statusMarkup(wrapper, prioritizeImages = false, fullMedia = false){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${esc(plainContent(p.content))}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,hidden||state.saver,prioritizeImages===true,fullMedia===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}${link?`<a class="original" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open original ↗</a>`:''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${esc(wrapper.account.display_name||wrapper.account.username)} boosted</small>`:''}<div class="posttop">${timelineAvatar(a, name)}<div class="author"><b>${esc(name)}</b><small>@${esc(a.acct)}</small></div><a class="thread-link" data-open-thread="${esc(p.id)}" href="?post=${encodeURIComponent(p.id)}" aria-label="Open post and replies"><time class="time" datetime="${esc(p.created_at)}">${esc(new Date(p.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</time></a></div><div class="body">${hidden?`<details><summary>${esc(p.spoiler_text||'Sensitive or filtered content')} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${esc(p.replies_count ?? 0)}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${esc(p.reblogs_count ?? 0)}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>♡</span>${esc(p.favourites_count ?? 0)}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
 function startHomeImage(image, priority) {
   image.fetchPriority = priority;
   image.src = image.dataset.homePreview;
@@ -104,7 +135,14 @@ function loadMedia(button) {
   const post = displayedPosts().map(wrapper => wrapper.reblog || wrapper)
     .find(post => post.id === button.dataset.media);
   const attachment = post?.media_attachments?.find(media => media.id === button.dataset.mediaid);
-  const preview = attachment && imagePreview(attachment);
+  if (!attachment) return;
+  if (button.hasAttribute('data-full-media')) {
+    const template = document.createElement('template');
+    template.innerHTML = originalMediaMarkup(attachment);
+    button.replaceWith(template.content);
+    return;
+  }
+  const preview = imagePreview(attachment);
   if (!preview) return;
   const image = document.createElement('img');
   image.className = 'photo';
@@ -362,13 +400,27 @@ function displayedPosts() {
 
 function renderPostThread(thread = activeThread) {
   if (!thread?.post || activeThread !== thread) return;
+  const content = $('#threadContent');
+  if (!content.firstElementChild) {
+    content.innerHTML = '<section data-thread-parents hidden></section>' +
+      '<section data-thread-post aria-label="Selected post"></section>' +
+      '<section data-thread-replies></section>';
+  }
   const rows = posts => posts.map(post => statusMarkup(post)).join('');
-  $('#threadContent').innerHTML =
-    (thread.parents.length ? '<section><h2>Earlier in the thread</h2>' + rows(thread.parents) + '</section>' : '') +
-    '<section aria-label="Selected post">' + statusMarkup(thread.post) + '</section>' +
-    '<section><h2>Replies (' + thread.replies.length + ')</h2>' +
-    (thread.replies.length ? rows(thread.replies) : '<p class="empty">No replies yet.</p>') +
-    '</section>';
+  const sections = {
+    parents: thread.parents.length ? '<h2>Earlier in the thread</h2>' + rows(thread.parents) : '',
+    post: statusMarkup(thread.post, false, true),
+    replies: '<h2>Replies (' + thread.replies.length + ')</h2>' +
+      (thread.replies.length ? rows(thread.replies) : '<p class="empty">No replies yet.</p>')
+  };
+  thread.renderedSections ||= {};
+  for (const [name, markup] of Object.entries(sections)) {
+    if (thread.renderedSections[name] === markup) continue;
+    const section = content.querySelector('[data-thread-' + name + ']');
+    section.innerHTML = markup;
+    section.hidden = !markup;
+    thread.renderedSections[name] = markup;
+  }
 }
 
 function readThreadContext(thread, data) {
@@ -534,7 +586,7 @@ async function logout(){stopLiveStream();closePostThread(false);const button=$('
 document.addEventListener('click',async event=>{if(!accountSession||!me)return;const target=event.target;
   const threadLink = target.closest('[data-open-thread]');
   const clickedPost = target.closest('#feed article[data-status], #threadContent article[data-status]');
-  const interactive = target.closest('a,button,input,textarea,select,label,summary,[contenteditable]');
+  const interactive = target.closest('a,button,input,textarea,select,label,summary,video,audio,[contenteditable]');
   const postID = threadLink?.dataset.openThread || (!interactive && clickedPost?.dataset.status);
   if (validPostID(postID) && event.button === 0 && !event.metaKey && !event.ctrlKey &&
       !event.shiftKey && !event.altKey && !window.getSelection()?.toString()) {
