@@ -35,8 +35,18 @@ function plainContent(html) {
   content.querySelectorAll('p').forEach(node => node.append('\n\n'));
   return content.textContent.trim();
 }
+function attachmentSource(media, field) {
+  const url = safeURL(media[field]);
+  if (!url || state.externalMedia === true) return url;
+  const remote = safeURL(media.remote_url);
+  if (field === 'remote_url') return '';
+  if (!remote) return url;
+  const origin = new URL(url).origin;
+  return origin === new URL(remote).origin && origin !== accountSession?.origin ? '' : url;
+}
+
 function imagePreview(media) {
-  return safeURL(media.preview_url) || safeURL(media.url);
+  return attachmentSource(media, 'preview_url') || attachmentSource(media, 'url') || attachmentSource(media, 'remote_url');
 }
 
 function mediaDimensions(media) {
@@ -56,10 +66,10 @@ function isVideoAttachment(media) {
 }
 
 function videoMarkup(media, source, dimensions, ratio, description, inline) {
-  const original = safeURL(media.remote_url);
+  const original = attachmentSource(media, 'remote_url');
   const fallback = original && original !== source
     ? ` data-video-fallback="${esc(original)}"` : '';
-  const poster = safeURL(media.preview_url);
+  const poster = attachmentSource(media, 'preview_url');
   return `<video controls playsinline preload="${inline ? 'none' : 'auto'}"${dimensions}${ratio}
     src="${esc(source)}"${fallback}${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${description}"></video>
     <p class="pollnote" data-video-error hidden>Could not play this video here. Try opening the media directly.</p>`;
@@ -68,7 +78,7 @@ function videoMarkup(media, source, dimensions, ratio, description, inline) {
 function handleVideoError(video) {
   const fallback = video.dataset.videoFallback;
   delete video.dataset.videoFallback;
-  if (fallback) {
+  if (fallback && state.externalMedia === true) {
     if (video.preload === 'none') video.preload = 'metadata';
     video.src = fallback;
     return;
@@ -78,7 +88,7 @@ function handleVideoError(video) {
 }
 
 function originalMediaMarkup(media, inline = false) {
-  const url = safeURL(media.url) || safeURL(media.remote_url);
+  const url = attachmentSource(media, 'url') || attachmentSource(media, 'remote_url');
   const imageURL = url || (media.type === 'image' ? imagePreview(media) : '');
   if (!imageURL) return '';
   const href = esc(imageURL);
@@ -96,15 +106,17 @@ function originalMediaMarkup(media, inline = false) {
     player = `<audio controls preload="metadata" src="${href}" aria-label="${description}"></audio>`;
   }
 
-  const direct = isVideoAttachment(media) ? safeURL(media.remote_url) || imageURL : imageURL;
+  const direct = isVideoAttachment(media) ? attachmentSource(media, 'remote_url') || imageURL : imageURL;
   return `<div class="original-media">${player}<a class="media-link" href="${esc(direct)}" target="_blank" rel="noopener noreferrer">Open full-size media ↗</a></div>`;
 }
 
 function attachmentMarkup(media, post, requiresReveal, prioritizeImages, fullMedia) {
   const inlineVideo = !fullMedia && isVideoAttachment(media);
+  const externalNotice = state.externalMedia !== true && safeURL(media.remote_url)
+    ? '<p class="pollnote">External media is off. You can enable it in Settings.</p>' : '';
   if (fullMedia || inlineVideo) {
-    if (!safeURL(media.url) && !safeURL(media.remote_url) &&
-        !(media.type === 'image' && imagePreview(media))) return '';
+    if (!attachmentSource(media, 'url') && !attachmentSource(media, 'remote_url') &&
+        !(media.type === 'image' && imagePreview(media))) return externalNotice;
     if (requiresReveal) {
       return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" data-full-media${inlineVideo ? ' data-inline-video' : ''}>▧ ${esc(media.description || 'Load media')}</button>`;
     }
@@ -113,15 +125,15 @@ function attachmentMarkup(media, post, requiresReveal, prioritizeImages, fullMed
   const description = esc(media.description || 'Post image');
   if (media.type === 'image') {
     const preview = imagePreview(media);
-    if (!preview) return '';
+    if (!preview) return externalNotice;
     if (requiresReveal) {
       return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}">▧ ${esc(media.description || 'Load image')}</button>`;
     }
     const source = prioritizeImages ? `data-home-preview="${esc(preview)}"` : `src="${esc(preview)}"`;
     return `<img class="photo" ${source} loading="eager" alt="${description}" decoding="async" referrerpolicy="no-referrer">`;
   }
-  const url = safeURL(media.url);
-  return url ? `<a class="media-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(media.type)} attachment ↗</a>` : '';
+  const url = attachmentSource(media, 'url') || attachmentSource(media, 'remote_url');
+  return url ? `<a class="media-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(media.type)} attachment ↗</a>` : externalNotice;
 }
 
 function timelineAvatar(account, name) {
@@ -309,7 +321,7 @@ function renderLive(appendedPosts, prioritizeImages = false) {
     $('#loadmore').hidden = !nextPage;
     return;
   }
-  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver']){ $('#'+k).checked=state[k];$('#modal'+k).checked=state[k] }$('#heading').textContent=view;updateTimelineSubtitle();document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account?.acct||''} ${p.account?.display_name||''}`.toLowerCase().includes(q)});const rows=view==='Notifications'?groupNotifications(posts):posts;feed.innerHTML=rows.map(post=>timelineRowMarkup(post,prioritizeImages)).join('')||(view==='Notifications'?'<div class="empty">No notifications to show.</div>':'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>');$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent='';
+  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver','externalMedia']){ $('#'+k).checked=state[k]===true;$('#modal'+k).checked=state[k]===true }$('#heading').textContent=view;updateTimelineSubtitle();document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account?.acct||''} ${p.account?.display_name||''}`.toLowerCase().includes(q)});const rows=view==='Notifications'?groupNotifications(posts):posts;feed.innerHTML=rows.map(post=>timelineRowMarkup(post,prioritizeImages)).join('')||(view==='Notifications'?'<div class="empty">No notifications to show.</div>':'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>');$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent='';
   if (prioritizeImages) loadHomeImages(feed.querySelectorAll('[data-home-preview]'));
 }
 function loadMedia(button) {
@@ -1127,7 +1139,7 @@ document.addEventListener('click',async event=>{if(!accountSession||!me)return;c
   }
 const navButton=target.closest('[data-view]'), tabButton=target.closest('[data-tab]'), action=target.closest('[data-liveaction]'), media=target.closest('[data-media]');if(navButton){event.stopImmediatePropagation();if(navButton.dataset.view==='Settings'){$('#modal').showModal();return}if(activeThread){history.replaceState(null,'',threadURL(null));closePostThread(false)}view=navButton.dataset.view;$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();return}if(tabButton){event.stopImmediatePropagation();tab=tabButton.dataset.tab;if(view!=='Live')view='Home';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b===tabButton));await loadTimeline();return}if(target.closest('#refresh')){event.stopImmediatePropagation();await loadTimeline();return}if(target.closest('#profile')){event.stopImmediatePropagation();openAccount();return}if(target.closest('[data-search]')){event.stopImmediatePropagation();$('#search').value=target.closest('[data-search]').dataset.search;renderLive();return}if(media){event.stopImmediatePropagation();loadMedia(media);return}if(action){event.stopImmediatePropagation();const id=action.dataset.id;const p=displayedPosts().map(p=>p.reblog||p).find(p=>p.id===id);if(!p)return;const type=action.dataset.liveaction;if(type==='reply'){replyTo=p.id;$('#draft').value='@'+p.account.acct+' ';$('#replylabel').textContent='Replying to @'+p.account.acct;$('#cancelreply').hidden=false;$('#visibility').value=['private','direct'].includes(p.visibility)?'private':'unlisted';if(p.visibility==='direct'){toast('Open the original post to reply privately.');replyTo=null;$('#draft').value='';$('#replylabel').textContent='';$('#cancelreply').hidden=true;return}if(activeThread)document.body.classList.add('thread-composing');$('#draft').dispatchEvent(new Event('input'));$('#draft').focus();$('.composer').scrollIntoView({behavior:'smooth'});return}await toggleLiveReaction(action,p,type);return}if(target.closest('#post')){event.stopImmediatePropagation();const status=$('#draft').value.trim();if(!status)return;const button=$('#post');button.disabled=true;const visibility=$('#visibility').value;const signature=JSON.stringify([status,visibility,replyTo]);if(!pendingPost||pendingPost.signature!==signature)pendingPost={signature,key:crypto.randomUUID()};try{await api('/api/v1/statuses',{method:'POST',headers:{'Idempotency-Key':pendingPost.key},body:{status,visibility,...(replyTo?{in_reply_to_id:replyTo}:{})}});pendingPost=null;replyTo=null;$('#visibility').value='public';$('#replylabel').textContent='';$('#cancelreply').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));if(activeThread){document.body.classList.remove('thread-composing');await loadPostThread(activeThread)}else{if(view!=='Live')view='Home';$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline()}toast('Published to Mastodon.')}catch(error){$('#liveerror').textContent=error.message}finally{button.disabled=false}}},true);
 document.addEventListener('input',e=>{if(accountSession&&e.target.id==='search'){e.stopImmediatePropagation();renderLive()}},true);
-document.addEventListener('change',e=>{if(!accountSession)return;const id=e.target.id.replace('modal','');if(['compact','saver'].includes(id)){e.stopImmediatePropagation();state[id]=e.target.checked;save();renderLive()}},true);
+document.addEventListener('change',e=>{if(!accountSession)return;const id=e.target.id.replace('modal','');if(['compact','saver'].includes(id)){e.stopImmediatePropagation();state[id]=e.target.checked;$('#'+id).checked=state[id];$('#modal'+id).checked=state[id];save();renderLive()}},true);
 $('#signinTop').onclick=openAccount;$('#accountClose').onclick=()=>$('#accountDialog').close();$('#signinForm').onsubmit=startLogin;$('#signout').onclick=logout;$('#loadmore').onclick=()=>loadTimeline(true);$('#cancelreply').onclick=()=>{replyTo=null;$('#replylabel').textContent='';$('#cancelreply').hidden=true};
 finishLogin();
 
