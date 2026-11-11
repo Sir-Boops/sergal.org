@@ -110,3 +110,17 @@ article[data-status] { cursor: pointer; }
   vertical-align: -0.27em;
   object-fit: contain;
 }
+
+.original-media-image {
+  width: min(100%, var(--media-width, 100%));
+}
+.original-media img {
+  width: 100%;
+  aspect-ratio: var(--media-ratio, auto 1 / 1);
+  object-fit: contain;
+}
+.original-media video {
+  aspect-ratio: var(--media-ratio, auto 16 / 9);
+  object-fit: contain;
+  background: transparent;
+}

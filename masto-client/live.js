@@ -25,6 +25,13 @@ function imagePreview(media) {
   return safeURL(media.preview_url) || safeURL(media.url);
 }
 
+function mediaDimensions(media) {
+  const {width, height} = media.meta?.original || {};
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 ||
+      width > 100000 || height > 100000) return null;
+  return {width, height};
+}
+
 function originalMediaMarkup(media) {
   const url = safeURL(media.url) || safeURL(media.remote_url);
   const imageURL = url || (media.type === 'image' ? imagePreview(media) : '');
@@ -32,15 +39,15 @@ function originalMediaMarkup(media) {
   const href = esc(imageURL);
   const description = esc(media.description || 'Post attachment');
   let player = '';
+  const size = mediaDimensions(media);
+  const dimensions = size ? ` width="${size.width}" height="${size.height}"` : '';
+  const ratio = size ? ` style="--media-ratio:${size.width} / ${size.height};--media-width:${size.width}px"` : '';
 
   if (media.type === 'image') {
-    const {width, height} = media.meta?.original || {};
-    const dimensions = Number.isInteger(width) && width > 0 && Number.isInteger(height) && height > 0
-      ? ` width="${width}" height="${height}"` : '';
-    player = `<a class="original-media-image" href="${href}" target="_blank" rel="noopener noreferrer"><img src="${href}"${dimensions} alt="${description}" decoding="async" referrerpolicy="no-referrer"></a>`;
+    player = `<a class="original-media-image"${ratio} href="${href}" target="_blank" rel="noopener noreferrer"><img src="${href}"${dimensions} alt="${description}" decoding="async" referrerpolicy="no-referrer"></a>`;
   } else if (media.type === 'video' || media.type === 'gifv') {
     const poster = safeURL(media.preview_url);
-    player = `<video controls playsinline preload="metadata" src="${href}"${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${description}"></video>`;
+    player = `<video controls playsinline preload="auto"${dimensions}${ratio} src="${href}"${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${description}"></video>`;
   } else if (media.type === 'audio') {
     player = `<audio controls preload="metadata" src="${href}" aria-label="${description}"></audio>`;
   }
@@ -107,7 +114,7 @@ document.addEventListener('error', event => {
   if (image.classList?.contains('custom-emoji')) image.replaceWith(image.alt);
 }, true);
 
-function statusMarkup(wrapper, prioritizeImages = false, fullMedia = false){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${customEmojiMarkup(plainContent(p.content),p.emojis)}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,hidden||state.saver,prioritizeImages===true,fullMedia===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}${link?`<a class="original" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open original ↗</a>`:''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${customEmojiMarkup(wrapper.account.display_name||wrapper.account.username,wrapper.account.emojis)} boosted</small>`:''}<div class="posttop">${timelineAvatar(a, name)}<div class="author"><b>${customEmojiMarkup(name,a.emojis)}</b><small>@${esc(a.acct)}</small></div><a class="thread-link" data-open-thread="${esc(p.id)}" href="?post=${encodeURIComponent(p.id)}" aria-label="Open post and replies"><time class="time" datetime="${esc(p.created_at)}">${esc(new Date(p.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</time></a></div><div class="body">${hidden?`<details><summary>${customEmojiMarkup(p.spoiler_text||'Sensitive or filtered content',p.emojis)} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${esc(p.replies_count ?? 0)}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${esc(p.reblogs_count ?? 0)}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>${favouriteIcon(!!p.favourited)}</span>${esc(p.favourites_count ?? 0)}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
+function statusMarkup(wrapper, prioritizeImages = false, fullMedia = false){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${customEmojiMarkup(plainContent(p.content),p.emojis)}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,state.saver||(fullMedia===true?!!p.filtered?.length:hidden),prioritizeImages===true,fullMedia===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}${link?`<a class="original" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open original ↗</a>`:''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${customEmojiMarkup(wrapper.account.display_name||wrapper.account.username,wrapper.account.emojis)} boosted</small>`:''}<div class="posttop">${timelineAvatar(a, name)}<div class="author"><b>${customEmojiMarkup(name,a.emojis)}</b><small>@${esc(a.acct)}</small></div><a class="thread-link" data-open-thread="${esc(p.id)}" href="?post=${encodeURIComponent(p.id)}" aria-label="Open post and replies"><time class="time" datetime="${esc(p.created_at)}">${esc(new Date(p.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</time></a></div><div class="body">${hidden?`<details><summary>${customEmojiMarkup(p.spoiler_text||'Sensitive or filtered content',p.emojis)} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${esc(p.replies_count ?? 0)}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${esc(p.reblogs_count ?? 0)}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>${favouriteIcon(!!p.favourited)}</span>${esc(p.favourites_count ?? 0)}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
 function startHomeImage(image, priority) {
   image.fetchPriority = priority;
   image.src = image.dataset.homePreview;
