@@ -46,7 +46,38 @@ function mediaDimensions(media) {
   return {width, height};
 }
 
-function originalMediaMarkup(media) {
+function isVideoAttachment(media) {
+  if (media.type === 'video' || media.type === 'gifv') return true;
+  if (media.type && media.type !== 'unknown') return false;
+  return [media.url, media.remote_url].some(value => {
+    const url = safeURL(value);
+    return url && /\.(mp4|webm|m4v|mov)$/i.test(new URL(url).pathname);
+  });
+}
+
+function videoMarkup(media, source, dimensions, ratio, description, inline) {
+  const original = safeURL(media.remote_url);
+  const fallback = original && original !== source
+    ? ` data-video-fallback="${esc(original)}"` : '';
+  const poster = safeURL(media.preview_url);
+  return `<video controls playsinline preload="${inline ? 'none' : 'auto'}"${dimensions}${ratio}
+    src="${esc(source)}"${fallback}${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${description}"></video>
+    <p class="pollnote" data-video-error hidden>Could not play this video here. Try opening the media directly.</p>`;
+}
+
+function handleVideoError(video) {
+  const fallback = video.dataset.videoFallback;
+  delete video.dataset.videoFallback;
+  if (fallback) {
+    if (video.preload === 'none') video.preload = 'metadata';
+    video.src = fallback;
+    return;
+  }
+  const message = video.parentElement?.querySelector('[data-video-error]');
+  if (message) message.hidden = false;
+}
+
+function originalMediaMarkup(media, inline = false) {
   const url = safeURL(media.url) || safeURL(media.remote_url);
   const imageURL = url || (media.type === 'image' ? imagePreview(media) : '');
   if (!imageURL) return '';
@@ -59,24 +90,25 @@ function originalMediaMarkup(media) {
 
   if (media.type === 'image') {
     player = `<a class="original-media-image is-loading"${ratio} href="${href}" target="_blank" rel="noopener noreferrer"><img src="${href}"${dimensions} alt="${description}" decoding="async" referrerpolicy="no-referrer"></a>`;
-  } else if (media.type === 'video' || media.type === 'gifv') {
-    const poster = safeURL(media.preview_url);
-    player = `<video controls playsinline preload="auto"${dimensions}${ratio} src="${href}"${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${description}"></video>`;
+  } else if (isVideoAttachment(media)) {
+    player = videoMarkup(media, imageURL, dimensions, ratio, description, inline);
   } else if (media.type === 'audio') {
     player = `<audio controls preload="metadata" src="${href}" aria-label="${description}"></audio>`;
   }
 
-  return `<div class="original-media">${player}<a class="media-link" href="${href}" target="_blank" rel="noopener noreferrer">Open full-size media ↗</a></div>`;
+  const direct = isVideoAttachment(media) ? safeURL(media.remote_url) || imageURL : imageURL;
+  return `<div class="original-media">${player}<a class="media-link" href="${esc(direct)}" target="_blank" rel="noopener noreferrer">Open full-size media ↗</a></div>`;
 }
 
 function attachmentMarkup(media, post, requiresReveal, prioritizeImages, fullMedia) {
-  if (fullMedia) {
+  const inlineVideo = !fullMedia && isVideoAttachment(media);
+  if (fullMedia || inlineVideo) {
     if (!safeURL(media.url) && !safeURL(media.remote_url) &&
         !(media.type === 'image' && imagePreview(media))) return '';
     if (requiresReveal) {
-      return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" data-full-media>▧ ${esc(media.description || 'Load media')}</button>`;
+      return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" data-full-media${inlineVideo ? ' data-inline-video' : ''}>▧ ${esc(media.description || 'Load media')}</button>`;
     }
-    return originalMediaMarkup(media);
+    return originalMediaMarkup(media, inlineVideo);
   }
   const description = esc(media.description || 'Post image');
   if (media.type === 'image') {
@@ -106,7 +138,10 @@ function finishImageLoading(image) {
   image.closest('.original-media-image')?.classList.remove('is-loading');
 }
 
-$('main').addEventListener('error', event => finishImageLoading(event.target), true);
+$('main').addEventListener('error', event => {
+  if (event.target.tagName === 'VIDEO') handleVideoError(event.target);
+  else finishImageLoading(event.target);
+}, true);
 $('main').addEventListener('load', event => {
   finishImageLoading(event.target);
   if (event.target.classList.contains('timeline-avatar-image')) {
@@ -284,7 +319,7 @@ function loadMedia(button) {
   if (!attachment) return;
   if (button.hasAttribute('data-full-media')) {
     const template = document.createElement('template');
-    template.innerHTML = originalMediaMarkup(attachment);
+    template.innerHTML = originalMediaMarkup(attachment, button.hasAttribute('data-inline-video'));
     button.replaceWith(template.content);
     return;
   }
