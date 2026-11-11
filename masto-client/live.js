@@ -1,5 +1,5 @@
 /* Account data stays in memory; OAuth credentials are stored on this device. */
-const SCOPES='read:accounts read:statuses read:bookmarks read:favourites read:notifications write:statuses write:bookmarks write:favourites';
+const SCOPES='read:accounts read:statuses read:bookmarks read:favourites read:notifications read:follows write:follows write:statuses write:bookmarks write:favourites';
 let accountSession=null, me=null, livePosts=[], nextPage=null, requestNumber=0, replyTo=null, pendingPost=null;
 const safeURL=value=>{try{const u=new URL(value);return u.protocol==='https:'?u.href:''}catch{return ''}};
 function serverOrigin(value) {
@@ -18,11 +18,12 @@ async function challenge(verifier){return btoa(String.fromCharCode(...new Uint8A
 async function request(origin,path,{token,method='GET',body,headers={}}={}){let response;try{response=await fetch(origin+path,{method,mode:'cors',credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(25000),headers:{...(token?{Authorization:`Bearer ${token}`} :{}),...headers},body:body?new URLSearchParams(body):undefined})}catch{throw Error('Could not reach your server. Check your connection and that it allows browser clients, then try again.')}let data;try{data=await response.json()}catch{data={}}if(!response.ok){const message=response.status===401?'Your session has expired. Sign out and sign in again.':response.status===429?'Your server is limiting requests. Please wait a moment and retry.':String(data.error_description||data.error||`Server returned ${response.status}.`);throw Object.assign(Error(message),{status:response.status})}return {data,response}}
 const api=(path,options={})=>request(accountSession.origin,path,{...options,token:accountSession.token});
 function authMessage(text){$('#autherror').textContent=text}
-function openAccount(reconnect){ const upgrade = reconnect === true && !!accountSession;
-  $('#accountTitle').textContent=upgrade?'Enable notifications':me?'Your Mastodon account':'Sign in to Mastodon';
+function openAccount(reconnect){ const followUpgrade = reconnect === 'follows';
+  const upgrade = (reconnect === true || followUpgrade) && !!accountSession;
+  $('#accountTitle').textContent=upgrade?(followUpgrade?'Enable following':'Enable notifications'):me?'Your Mastodon account':'Sign in to Mastodon';
   $('#signinForm').hidden=!!me&&!upgrade;$('#signedAccount').hidden=!me||upgrade;
   $('#instance').readOnly=upgrade;
-  if(upgrade){$('#instance').value=accountSession.origin;authMessage('Approve notification access on your Mastodon server.')}else authMessage('');
+  if(upgrade){$('#instance').value=accountSession.origin;authMessage(followUpgrade?'Approve follow access on your Mastodon server.':'Approve notification access on your Mastodon server.')}else authMessage('');
   $('#signedName').textContent=me?`@${me.acct.includes('@')?me.acct:me.acct+'@'+new URL(accountSession.origin).hostname}`:'';$('#accountDialog').showModal() }
 async function startLogin(event){event.preventDefault();const button=$('#signinSubmit');button.disabled=true;authMessage('Connecting to your server…');try{const origin=serverOrigin($('#instance').value);sessionStorage.setItem('swift-storage-check','1');sessionStorage.removeItem('swift-storage-check');const metadata=(await request(origin,'/.well-known/oauth-authorization-server')).data;if(!metadata.code_challenge_methods_supported?.includes('S256'))throw Error('This client requires a Mastodon server with PKCE support (Mastodon 4.3 or newer).');const redirect=location.origin+'/masto-client/';const app=(await request(origin,'/api/v1/apps',{method:'POST',body:{client_name:'speedy-fedi',redirect_uris:redirect,scopes:SCOPES,website:location.origin}})).data;if(!app.client_id||!app.client_secret)throw Error('Your server did not return application credentials.');const verifier=randomString(), state=randomString();const pending={origin,clientId:app.client_id,clientSecret:app.client_secret,redirect,verifier,state,postID:threadIDFromURL(),profileID:profileIDFromURL(),returnView:view==='Notifications'?'Notifications':null,created:Date.now()};sessionStorage.setItem('swift-oauth-pending',JSON.stringify(pending));const params=new URLSearchParams({response_type:'code',client_id:app.client_id,redirect_uri:redirect,scope:SCOPES,state,code_challenge:await challenge(verifier),code_challenge_method:'S256'});location.assign(origin+'/oauth/authorize?'+params)}catch(error){authMessage(error.message);button.disabled=false}}
 function plainContent(html){const doc=new DOMParser().parseFromString(html||'','text/html');doc.querySelectorAll('script,style').forEach(n=>n.remove());doc.querySelectorAll('br').forEach(n=>n.replaceWith('\n'));doc.querySelectorAll('p').forEach(n=>n.append('\n\n'));return doc.body.textContent.trim()}
@@ -479,6 +480,50 @@ function profileAvatar(account, name) {
   return `<a class="profile-avatar-link" data-open-profile="${id}" href="?profile=${id}" aria-label="Open profile for ${esc(name)}">${avatar}</a>`;
 }
 
+function profileFollowLabel(page) {
+  if (page.followPermissionRequired) return 'Reconnect to follow';
+  if (!page.relationship) return 'Follow unavailable';
+  if (page.relationship.following) return 'Unfollow';
+  if (page.relationship.requested) return 'Cancel follow request';
+  return 'Follow';
+}
+
+function updateProfileFollowButton(page) {
+  const button = $('#profileFollow');
+  if (!button || activeThread !== page) return;
+  button.textContent = profileFollowLabel(page);
+  button.disabled = !!page.followPending || (!page.relationship && !page.followPermissionRequired);
+}
+
+async function toggleProfileFollow(page) {
+  if (page.followPending || $('#refreshThread').disabled || page.id === me?.id) return;
+  if (page.followPermissionRequired) {
+    openAccount('follows');
+    return;
+  }
+  if (!page.relationship) return;
+  const remove = page.relationship.following || page.relationship.requested;
+  page.followPending = true;
+  updateProfileFollowButton(page);
+  try {
+    const {data} = await api('/api/v1/accounts/' + page.id + '/' + (remove ? 'unfollow' : 'follow'), {method: 'POST'});
+    if (data?.id !== page.id) throw Error('Your server returned an unexpected follow status.');
+    page.relationship = data;
+    if (activeThread === page) toast(data.following ? 'Following' : data.requested ? 'Follow request sent' : 'Follow removed');
+  } catch (error) {
+    if (activeThread !== page) return;
+    if (error.status === 401 || error.status === 403) {
+      page.followPermissionRequired = true;
+      openAccount('follows');
+    } else {
+      toast(error.message);
+    }
+  } finally {
+    page.followPending = false;
+    updateProfileFollowButton(page);
+  }
+}
+
 function renderProfilePage(page) {
   if (!page.account || activeThread !== page) return;
   const account = page.account;
@@ -492,22 +537,38 @@ function renderProfilePage(page) {
     </div></div>
     ${bio ? `<p class="account-profile-bio">${bio}</p>` : ''}
     <p class="account-profile-counts">${esc(account.followers_count ?? 0)} followers · ${esc(account.following_count ?? 0)} following</p>
+    ${page.id !== me?.id ? '<button type="button" class="primary" id="profileFollow"></button>' : ''}
     ${original ? `<a class="original" href="${esc(original)}" target="_blank" rel="noopener noreferrer">Open on home instance ↗</a>` : ''}
   </section><section><h2>Recent posts</h2>
     ${posts || '<p class="empty">No posts available.</p>'}</section>`;
+  const button = $('#profileFollow');
+  if (button) {
+    button.onclick = () => void toggleProfileFollow(page);
+    updateProfileFollowButton(page);
+  }
 }
 
 async function loadProfilePage(page) {
+  if (page.followPending) return;
   const version = ++page.version;
   $('#refreshThread').disabled = true;
   $('#threadStatus').textContent = 'Loading profile…';
   const path = '/api/v1/accounts/' + page.id;
   try {
-    const [profile, posts] = await Promise.allSettled([api(path), api(path + '/statuses?limit=20')]);
+    const [profile, posts, relationship] = await Promise.allSettled([
+      api(path), api(path + '/statuses?limit=20'),
+      page.id === me?.id ? null : api('/api/v1/accounts/relationships?id%5B%5D=' + page.id)
+    ]);
     if (activeThread !== page || version !== page.version) return;
     if (profile.status === 'rejected') throw profile.reason;
     if (profile.value.data?.id !== page.id) throw Error('Your server returned an unexpected profile.');
     page.account = profile.value.data;
+    if (relationship.status === 'fulfilled') {
+      page.relationship = relationship.value?.data?.find?.(item => item.id === page.id) || null;
+      page.followPermissionRequired = false;
+    } else {
+      page.followPermissionRequired = [401, 403].includes(relationship.reason?.status);
+    }
     const available = posts.status === 'fulfilled' && Array.isArray(posts.value.data);
     if (available) page.replies = posts.value.data;
     renderProfilePage(page);

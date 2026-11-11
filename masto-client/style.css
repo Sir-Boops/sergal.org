@@ -169,3 +169,5 @@ article[data-status] { cursor: pointer; }
 #threadContent .account-profile h2 { padding: 0; border: 0; font-size: 20px; }
 .account-profile-bio { white-space: pre-wrap; overflow-wrap: anywhere; }
 .account-profile-counts { color: var(--muted); }
+
+#profileFollow { margin: 4px 12px 4px 0; }
