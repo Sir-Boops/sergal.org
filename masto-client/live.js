@@ -25,7 +25,7 @@ function imagePreview(media) {
   return safeURL(media.preview_url) || safeURL(media.url);
 }
 
-function attachmentMarkup(media, post, requiresReveal) {
+function attachmentMarkup(media, post, requiresReveal, prioritizeImages) {
   const description = esc(media.description || 'Post image');
   if (media.type === 'image') {
     const preview = imagePreview(media);
@@ -33,7 +33,8 @@ function attachmentMarkup(media, post, requiresReveal) {
     if (requiresReveal) {
       return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}">▧ ${esc(media.description || 'Load image')}</button>`;
     }
-    return `<img class="photo" src="${esc(preview)}" loading="eager" alt="${description}" decoding="async" referrerpolicy="no-referrer">`;
+    const source = prioritizeImages ? `data-home-preview="${esc(preview)}"` : `src="${esc(preview)}"`;
+    return `<img class="photo" ${source} loading="eager" alt="${description}" decoding="async" referrerpolicy="no-referrer">`;
   }
   const url = safeURL(media.url);
   return url ? `<a class="media-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(media.type)} attachment ↗</a>` : '';
@@ -54,17 +55,43 @@ $('#feed').addEventListener('load', event => {
   }
 }, true);
 
-function statusMarkup(wrapper){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${esc(plainContent(p.content))}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,hidden||state.saver)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}${link?`<a class="original" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open original ↗</a>`:''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${esc(wrapper.account.display_name||wrapper.account.username)} boosted</small>`:''}<div class="posttop">${timelineAvatar(a, name)}<div class="author"><b>${esc(name)}</b><small>@${esc(a.acct)}</small></div><time class="time" datetime="${esc(p.created_at)}">${esc(new Date(p.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</time></div><div class="body">${hidden?`<details><summary>${esc(p.spoiler_text||'Sensitive or filtered content')} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${p.replies_count}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${p.reblogs_count}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>♡</span>${p.favourites_count}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
-function renderLive(appendedPosts) {
+function statusMarkup(wrapper, prioritizeImages = false){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${esc(plainContent(p.content))}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,hidden||state.saver,prioritizeImages===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}${link?`<a class="original" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open original ↗</a>`:''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${esc(wrapper.account.display_name||wrapper.account.username)} boosted</small>`:''}<div class="posttop">${timelineAvatar(a, name)}<div class="author"><b>${esc(name)}</b><small>@${esc(a.acct)}</small></div><time class="time" datetime="${esc(p.created_at)}">${esc(new Date(p.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</time></div><div class="body">${hidden?`<details><summary>${esc(p.spoiler_text||'Sensitive or filtered content')} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${p.replies_count}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${p.reblogs_count}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>♡</span>${p.favourites_count}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
+function startHomeImage(image, priority) {
+  image.fetchPriority = priority;
+  image.src = image.dataset.homePreview;
+  delete image.dataset.homePreview;
+}
+
+function loadHomeImages(images) {
+  const offscreen = [];
+  const viewportHeight = window.innerHeight;
+  for (const image of images) {
+    const {top, bottom} = image.getBoundingClientRect();
+    if (bottom > 0 && top < viewportHeight) startHomeImage(image, 'high');
+    else offscreen.push(image);
+  }
+  if (!offscreen.length) return;
+  requestAnimationFrame(() => {
+    for (const image of offscreen) {
+      if (image.isConnected) startHomeImage(image, 'low');
+    }
+  });
+}
+
+function renderLive(appendedPosts, prioritizeImages = false) {
   const feed = $('#feed');
   if (appendedPosts && !$('#search').value && !feed.querySelector('.empty')) {
     const page = document.createElement('template');
-    page.innerHTML = appendedPosts.map(statusMarkup).join('');
+    page.innerHTML = appendedPosts.map(post => statusMarkup(post, prioritizeImages)).join('');
+    const images = page.content.querySelectorAll('[data-home-preview]');
     feed.append(page.content);
+    if (prioritizeImages) loadHomeImages(images);
     $('#loadmore').hidden = !nextPage;
     return;
   }
-  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver']){ $('#'+k).checked=state[k];$('#modal'+k).checked=state[k] }$('#heading').textContent=view;$('#subtitle').textContent=view==='Live'?liveStatus:view==='Home'?'Your people. Your pace.':view==='Explore'?'Conversations across your server.':'Saved on your Mastodon account.';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account.acct} ${p.account.display_name}`.toLowerCase().includes(q)});feed.innerHTML=posts.map(statusMarkup).join('')||'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>';$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent=''}
+  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver']){ $('#'+k).checked=state[k];$('#modal'+k).checked=state[k] }$('#heading').textContent=view;$('#subtitle').textContent=view==='Live'?liveStatus:view==='Home'?'Your people. Your pace.':view==='Explore'?'Conversations across your server.':'Saved on your Mastodon account.';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account.acct} ${p.account.display_name}`.toLowerCase().includes(q)});feed.innerHTML=posts.map(post=>statusMarkup(post,prioritizeImages)).join('')||'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>';$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent='';
+  if (prioritizeImages) loadHomeImages(feed.querySelectorAll('[data-home-preview]'));
+}
 function loadMedia(button) {
   const post = livePosts.map(wrapper => wrapper.reblog || wrapper)
     .find(post => post.id === button.dataset.media);
@@ -105,7 +132,9 @@ async function loadTimeline(more = false) {
   if (more && (!nextPage || loadMore.disabled)) return;
   const ticket = ++requestNumber;
   const path = more ? nextPage : timelinePath();
-  const url = more ? path : path + (path.includes('?') ? '&' : '?') + 'limit=20';
+  const pageCount = !more && view === 'Home' ? 3 : 1;
+  let url = more ? path : path + (path.includes('?') ? '&' : '?') + 'limit=20';
+  let loadedPages = 0;
   const refresh = $('#refresh');
   const feed = $('#feed');
   $('#liveerror').textContent = '';
@@ -122,24 +151,31 @@ async function loadTimeline(more = false) {
     feed.innerHTML = '<div class="empty">Loading your timeline…</div>';
   }
   try {
-    const {data, response} = await api(url);
-    if (ticket !== requestNumber || !accountSession) return;
-    if (!Array.isArray(data)) throw Error('Your server returned an unexpected timeline.');
-    const seen = new Set(livePosts.map(post => post.id));
-    const fresh = data.filter(post => {
-      if (seen.has(post.id)) return false;
-      seen.add(post.id);
-      return true;
-    });
-    livePosts.push(...fresh);
-    const cursor = nextLink(response.headers.get('Link'), accountSession.origin);
-    nextPage = cursor === url || !data.length ? null : cursor;
-    autoLoadPaused = more && fresh.length === 0;
-    renderLive(more ? fresh : undefined);
+    const requestedPages = new Set();
+    for (let page = 0; page < pageCount && url; page++) {
+      requestedPages.add(url);
+      const {data, response} = await api(url);
+      if (ticket !== requestNumber || !accountSession) return;
+      if (!Array.isArray(data)) throw Error('Your server returned an unexpected timeline.');
+      const seen = new Set(livePosts.map(post => post.id));
+      const fresh = data.filter(post => {
+        if (seen.has(post.id)) return false;
+        seen.add(post.id);
+        return true;
+      });
+      livePosts.push(...fresh);
+      const cursor = nextLink(response.headers.get('Link'), accountSession.origin);
+      nextPage = !data.length || requestedPages.has(cursor) ? null : cursor;
+      autoLoadPaused = (more || page > 0) && fresh.length === 0;
+      renderLive(more || page > 0 ? fresh : undefined, pageCount > 1);
+      loadedPages++;
+      if (autoLoadPaused) break;
+      url = nextPage;
+    }
   } catch (error) {
     if (ticket !== requestNumber) return;
     $('#liveerror').textContent = error.message;
-    if (more) {
+    if (more || loadedPages > 0) {
       autoLoadPaused = true;
       toast('Could not load more posts. Use Load more posts to retry.');
     } else {
