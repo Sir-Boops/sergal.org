@@ -124,3 +124,13 @@ article[data-status] { cursor: pointer; }
   object-fit: contain;
   background: transparent;
 }
+
+.notification-row { border-bottom: 1px solid var(--line); }
+.notification-row > .post { border-bottom: 0; }
+.notification-heading { display: flex; align-items: center; gap: 12px; padding: 14px 20px; }
+.notification-heading a { color: inherit; }
+.notification-heading time { font-size: 0.85em; color: var(--muted); }
+@media (max-width: 650px) {
+  #nav button[data-view="Notifications"] span:last-child { font-size: 0; }
+  #nav button[data-view="Notifications"] span:last-child::after { content: "Alerts"; font-size: 0.55rem; }
+}
