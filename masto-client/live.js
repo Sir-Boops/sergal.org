@@ -405,12 +405,13 @@ function stopLiveStream() {
   if (!connection) return;
   clearTimeout(connection.retry);
   clearTimeout(connection.handshake);
+  connection.pendingPosts.clear();
   connection.socket?.close();
 }
 
 function startLiveStream() {
   if (activeThread || view !== 'Live' || !accountSession || liveConnection) return;
-  const connection = {session: accountSession, stream: liveStreamName(), delay: 1_000};
+  const connection = {session: accountSession, stream: liveStreamName(), delay: 1_000, pendingPosts: new Map()};
   liveConnection = connection;
   setLiveStatus('Connecting to the live feed…');
   void openLiveSocket(connection);
@@ -460,7 +461,7 @@ async function openLiveSocket(connection) {
     socket.addEventListener('message', ({data}) => {
       if (liveConnection !== connection || typeof data !== 'string') return;
       connection.delay = 1_000;
-      handleLiveEvent(data);
+      handleLiveEvent(data, connection);
     });
     socket.addEventListener('close', () => {
       if (liveConnection !== connection) return;
@@ -473,7 +474,57 @@ async function openLiveSocket(connection) {
   }
 }
 
-function handleLiveEvent(raw) {
+const LIVE_AVATAR_WAIT_MS = 800;
+
+function preloadLiveAvatar(post) {
+  const account = (post.reblog || post).account;
+  const url = safeURL(account?.avatar_static) || safeURL(account?.avatar);
+  if (!url) return Promise.resolve(null);
+
+  const image = new Image(42, 42);
+  image.className = 'timeline-avatar-image';
+  image.alt = '';
+  image.referrerPolicy = 'no-referrer';
+  return new Promise(resolve => {
+    const finish = () => {
+      clearTimeout(timeout);
+      image.onload = null;
+      image.onerror = null;
+      resolve(image);
+    };
+    const timeout = setTimeout(finish, LIVE_AVATAR_WAIT_MS);
+    image.onload = finish;
+    image.onerror = finish;
+    image.src = url;
+  });
+}
+
+function flushLivePosts(connection) {
+  if (liveConnection !== connection) return;
+  const batch = [];
+  for (const [id, item] of connection.pendingPosts) {
+    if (!item.ready) break;
+    connection.pendingPosts.delete(id);
+    batch.unshift(item);
+  }
+  if (!batch.length) return;
+  livePosts.unshift(...batch.map(item => item.post));
+  prependLivePosts(batch);
+}
+
+function queueLivePost(connection, post) {
+  if (connection.pendingPosts.has(post.id) || livePosts.some(item => item.id === post.id)) return;
+  const item = {post, ready: false, image: null};
+  connection.pendingPosts.set(post.id, item);
+  void preloadLiveAvatar(post).then(image => {
+    if (connection.pendingPosts.get(post.id) !== item) return;
+    item.image = image;
+    item.ready = true;
+    flushLivePosts(connection);
+  });
+}
+
+function handleLiveEvent(raw, connection) {
   let event, post;
   try {
     event = JSON.parse(raw);
@@ -482,12 +533,14 @@ function handleLiveEvent(raw) {
     return;
   }
 
-  if (post && typeof post.id === 'string' && post.account &&
-      !livePosts.some(existing => existing.id === post.id)) {
-    livePosts.unshift(post);
-    prependLivePosts([post]);
+  if (post && typeof post.id === 'string' && post.account) {
+    queueLivePost(connection, post);
   } else if (event?.event === 'delete' && typeof event.payload === 'string') {
     const id = event.payload;
+    for (const [key, item] of connection.pendingPosts) {
+      if (key === id || item.post.reblog?.id === id) connection.pendingPosts.delete(key);
+    }
+    flushLivePosts(connection);
     const remaining = livePosts.filter(item => item.id !== id && item.reblog?.id !== id);
     if (remaining.length === livePosts.length) return;
     livePosts = remaining;
@@ -503,15 +556,28 @@ window.addEventListener('pageshow', () => {
   if (!$('#refresh').disabled) startLiveStream();
 });
 
-function prependLivePosts(posts) {
+function prependLivePosts(batch) {
   const feed = $('#feed');
-  if ($('#search').value || feed.querySelector('.empty')) {
-    renderLive();
-    return;
-  }
+  const query = $('#search').value.toLowerCase();
+  const visible = query ? batch.filter(({post}) => {
+    const status = post.reblog || post;
+    return `${plainContent(status.content)} ${status.account?.acct || ''} ${status.account?.display_name || ''}`
+      .toLowerCase().includes(query);
+  }) : batch;
+  if (!visible.length) return;
+
+  feed.querySelector('.empty')?.remove();
   const anchor = feed.firstElementChild;
   const top = anchor?.getBoundingClientRect().top;
-  feed.insertAdjacentHTML('afterbegin', posts.map(statusMarkup).join(''));
+  const page = document.createElement('template');
+  page.innerHTML = visible.map(({post}) => statusMarkup(post)).join('');
+  [...page.content.children].forEach((card, index) => {
+    const image = visible[index].image;
+    if (!image) return;
+    if (image.complete && image.naturalWidth > 0) image.classList.add('loaded');
+    card.querySelector('.timeline-avatar-image')?.replaceWith(image);
+  });
+  feed.prepend(page.content);
   if (top < 0) {
     const shift = anchor.getBoundingClientRect().top - top;
     if (shift) window.scrollBy({top: shift, behavior: 'instant'});
