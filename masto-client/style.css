@@ -162,3 +162,10 @@ article[data-status] { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .original-media-image.is-loading::after { animation: none; opacity: 0; }
 }
+
+.profile-avatar-link { display: inline-flex; flex: 0 0 auto; border-radius: 50%; }
+.account-profile { padding: 20px 25px; }
+.account-profile-identity { display: flex; gap: 12px; align-items: center; }
+#threadContent .account-profile h2 { padding: 0; border: 0; font-size: 20px; }
+.account-profile-bio { white-space: pre-wrap; overflow-wrap: anywhere; }
+.account-profile-counts { color: var(--muted); }

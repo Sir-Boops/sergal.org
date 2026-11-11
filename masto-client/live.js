@@ -24,7 +24,7 @@ function openAccount(reconnect){ const upgrade = reconnect === true && !!account
   $('#instance').readOnly=upgrade;
   if(upgrade){$('#instance').value=accountSession.origin;authMessage('Approve notification access on your Mastodon server.')}else authMessage('');
   $('#signedName').textContent=me?`@${me.acct.includes('@')?me.acct:me.acct+'@'+new URL(accountSession.origin).hostname}`:'';$('#accountDialog').showModal() }
-async function startLogin(event){event.preventDefault();const button=$('#signinSubmit');button.disabled=true;authMessage('Connecting to your server…');try{const origin=serverOrigin($('#instance').value);sessionStorage.setItem('swift-storage-check','1');sessionStorage.removeItem('swift-storage-check');const metadata=(await request(origin,'/.well-known/oauth-authorization-server')).data;if(!metadata.code_challenge_methods_supported?.includes('S256'))throw Error('This client requires a Mastodon server with PKCE support (Mastodon 4.3 or newer).');const redirect=location.origin+'/masto-client/';const app=(await request(origin,'/api/v1/apps',{method:'POST',body:{client_name:'speedy-fedi',redirect_uris:redirect,scopes:SCOPES,website:location.origin}})).data;if(!app.client_id||!app.client_secret)throw Error('Your server did not return application credentials.');const verifier=randomString(), state=randomString();const pending={origin,clientId:app.client_id,clientSecret:app.client_secret,redirect,verifier,state,postID:threadIDFromURL(),returnView:view==='Notifications'?'Notifications':null,created:Date.now()};sessionStorage.setItem('swift-oauth-pending',JSON.stringify(pending));const params=new URLSearchParams({response_type:'code',client_id:app.client_id,redirect_uri:redirect,scope:SCOPES,state,code_challenge:await challenge(verifier),code_challenge_method:'S256'});location.assign(origin+'/oauth/authorize?'+params)}catch(error){authMessage(error.message);button.disabled=false}}
+async function startLogin(event){event.preventDefault();const button=$('#signinSubmit');button.disabled=true;authMessage('Connecting to your server…');try{const origin=serverOrigin($('#instance').value);sessionStorage.setItem('swift-storage-check','1');sessionStorage.removeItem('swift-storage-check');const metadata=(await request(origin,'/.well-known/oauth-authorization-server')).data;if(!metadata.code_challenge_methods_supported?.includes('S256'))throw Error('This client requires a Mastodon server with PKCE support (Mastodon 4.3 or newer).');const redirect=location.origin+'/masto-client/';const app=(await request(origin,'/api/v1/apps',{method:'POST',body:{client_name:'speedy-fedi',redirect_uris:redirect,scopes:SCOPES,website:location.origin}})).data;if(!app.client_id||!app.client_secret)throw Error('Your server did not return application credentials.');const verifier=randomString(), state=randomString();const pending={origin,clientId:app.client_id,clientSecret:app.client_secret,redirect,verifier,state,postID:threadIDFromURL(),profileID:profileIDFromURL(),returnView:view==='Notifications'?'Notifications':null,created:Date.now()};sessionStorage.setItem('swift-oauth-pending',JSON.stringify(pending));const params=new URLSearchParams({response_type:'code',client_id:app.client_id,redirect_uri:redirect,scope:SCOPES,state,code_challenge:await challenge(verifier),code_challenge_method:'S256'});location.assign(origin+'/oauth/authorize?'+params)}catch(error){authMessage(error.message);button.disabled=false}}
 function plainContent(html){const doc=new DOMParser().parseFromString(html||'','text/html');doc.querySelectorAll('script,style').forEach(n=>n.remove());doc.querySelectorAll('br').forEach(n=>n.replaceWith('\n'));doc.querySelectorAll('p').forEach(n=>n.append('\n\n'));return doc.body.textContent.trim()}
 function imagePreview(media) {
   return safeURL(media.preview_url) || safeURL(media.url);
@@ -126,7 +126,7 @@ document.addEventListener('error', event => {
   if (image.classList?.contains('custom-emoji')) image.replaceWith(image.alt);
 }, true);
 
-function statusMarkup(wrapper, prioritizeImages = false, fullMedia = false){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${customEmojiMarkup(plainContent(p.content),p.emojis)}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,state.saver||(fullMedia===true?!!p.filtered?.length:hidden),prioritizeImages===true,fullMedia===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}${link?`<a class="original" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open original ↗</a>`:''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${customEmojiMarkup(wrapper.account.display_name||wrapper.account.username,wrapper.account.emojis)} boosted</small>`:''}<div class="posttop">${timelineAvatar(a, name)}<div class="author"><b>${customEmojiMarkup(name,a.emojis)}</b><small>@${esc(a.acct)}</small></div><a class="thread-link" data-open-thread="${esc(p.id)}" href="?post=${encodeURIComponent(p.id)}" aria-label="Open post and replies"><time class="time" datetime="${esc(p.created_at)}">${esc(new Date(p.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</time></a></div><div class="body">${hidden?`<details><summary>${customEmojiMarkup(p.spoiler_text||'Sensitive or filtered content',p.emojis)} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${esc(p.replies_count ?? 0)}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${esc(p.reblogs_count ?? 0)}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>${favouriteIcon(!!p.favourited)}</span>${esc(p.favourites_count ?? 0)}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
+function statusMarkup(wrapper, prioritizeImages = false, fullMedia = false){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${customEmojiMarkup(plainContent(p.content),p.emojis)}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,state.saver||(fullMedia===true?!!p.filtered?.length:hidden),prioritizeImages===true,fullMedia===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}${link?`<a class="original" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open original ↗</a>`:''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${customEmojiMarkup(wrapper.account.display_name||wrapper.account.username,wrapper.account.emojis)} boosted</small>`:''}<div class="posttop">${profileAvatar(a, name)}<div class="author"><b>${customEmojiMarkup(name,a.emojis)}</b><small>@${esc(a.acct)}</small></div><a class="thread-link" data-open-thread="${esc(p.id)}" href="?post=${encodeURIComponent(p.id)}" aria-label="Open post and replies"><time class="time" datetime="${esc(p.created_at)}">${esc(new Date(p.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</time></a></div><div class="body">${hidden?`<details><summary>${customEmojiMarkup(p.spoiler_text||'Sensitive or filtered content',p.emojis)} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${esc(p.replies_count ?? 0)}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${esc(p.reblogs_count ?? 0)}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>${favouriteIcon(!!p.favourited)}</span>${esc(p.favourites_count ?? 0)}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
 function startHomeImage(image, priority) {
   image.fetchPriority = priority;
   image.src = image.dataset.homePreview;
@@ -173,7 +173,7 @@ function timelineRowMarkup(row, prioritizeImages) {
     ? `<a href="${esc(profile)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
   const action = Object.hasOwn(notificationLabels, row.type)
     ? notificationLabels[row.type] : 'sent a notification';
-  return `<section class="notification-row"><div class="notification-heading">${actor ? timelineAvatar(actor, name) : ''}
+  return `<section class="notification-row"><div class="notification-heading">${actor ? profileAvatar(actor, name) : ''}
     <div><strong>${identity}</strong> ${action}<br><time datetime="${esc(row.created_at)}">${esc(new Date(row.created_at).toLocaleString())}</time></div></div>
     ${row.reblog ? statusMarkup(row.reblog, prioritizeImages) : ''}</section>`;
 }
@@ -467,19 +467,76 @@ function threadIDFromURL() {
   return validPostID(id) ? id : null;
 }
 
-function threadURL(id) {
+function profileIDFromURL() {
+  const id = new URLSearchParams(location.search).get('profile');
+  return validPostID(id) ? id : null;
+}
+
+function profileAvatar(account, name) {
+  const avatar = timelineAvatar(account, name);
+  if (!validPostID(account.id)) return avatar;
+  const id = esc(account.id);
+  return `<a class="profile-avatar-link" data-open-profile="${id}" href="?profile=${id}" aria-label="Open profile for ${esc(name)}">${avatar}</a>`;
+}
+
+function renderProfilePage(page) {
+  if (!page.account || activeThread !== page) return;
+  const account = page.account;
+  const name = account.display_name || account.username || account.acct;
+  const original = safeURL(account.url);
+  const bio = customEmojiMarkup(plainContent(account.note), account.emojis);
+  const posts = page.replies.map(post => statusMarkup(post)).join('');
+  $('#threadContent').innerHTML = `<section class="account-profile">
+    <div class="account-profile-identity">${timelineAvatar(account, name)}<div>
+      <h2>${customEmojiMarkup(name, account.emojis)}</h2><div class="subhead">@${esc(account.acct)}</div>
+    </div></div>
+    ${bio ? `<p class="account-profile-bio">${bio}</p>` : ''}
+    <p class="account-profile-counts">${esc(account.followers_count ?? 0)} followers · ${esc(account.following_count ?? 0)} following</p>
+    ${original ? `<a class="original" href="${esc(original)}" target="_blank" rel="noopener noreferrer">Open on home instance ↗</a>` : ''}
+  </section><section><h2>Recent posts</h2>
+    ${posts || '<p class="empty">No posts available.</p>'}</section>`;
+}
+
+async function loadProfilePage(page) {
+  const version = ++page.version;
+  $('#refreshThread').disabled = true;
+  $('#threadStatus').textContent = 'Loading profile…';
+  const path = '/api/v1/accounts/' + page.id;
+  try {
+    const [profile, posts] = await Promise.allSettled([api(path), api(path + '/statuses?limit=20')]);
+    if (activeThread !== page || version !== page.version) return;
+    if (profile.status === 'rejected') throw profile.reason;
+    if (profile.value.data?.id !== page.id) throw Error('Your server returned an unexpected profile.');
+    page.account = profile.value.data;
+    const available = posts.status === 'fulfilled' && Array.isArray(posts.value.data);
+    if (available) page.replies = posts.value.data;
+    renderProfilePage(page);
+    $('#threadStatus').textContent = available ? '' : 'Could not load recent posts. Try Refresh profile.';
+  } catch (error) {
+    if (activeThread === page && version === page.version) {
+      $('#threadStatus').textContent = error.message || 'Could not load this profile.';
+    }
+  } finally {
+    if (activeThread === page && version === page.version) $('#refreshThread').disabled = false;
+  }
+}
+
+function threadURL(id, kind = 'post') {
   const url = new URL(location.href);
-  if (id) url.searchParams.set('post', id);
-  else url.searchParams.delete('post');
+  url.searchParams.delete('post');
+  url.searchParams.delete('profile');
+  if (id) url.searchParams.set(kind, id);
   return url;
 }
 
 function displayedPosts() {
+  if (activeThread?.kind === 'profile') return activeThread.replies;
   if (!activeThread?.post) return livePosts;
   return [activeThread.post, ...activeThread.parents, ...activeThread.replies];
 }
 
 function renderPostThread(thread = activeThread) {
+  if (thread?.kind === 'profile') return renderProfilePage(thread);
   if (!thread?.post || activeThread !== thread) return;
   const content = $('#threadContent');
   if (!content.firstElementChild) {
@@ -551,6 +608,7 @@ async function refreshThreadContext(thread, attempt) {
 }
 
 async function loadPostThread(thread) {
+  if (thread.kind === 'profile') return loadProfilePage(thread);
   clearTimeout(thread.timer);
   const version = ++thread.version;
   $('#refreshThread').disabled = true;
@@ -579,13 +637,13 @@ async function loadPostThread(thread) {
   }
 }
 
-function openPostThread(id, push = true) {
-  if (!validPostID(id) || !accountSession || activeThread?.id === id) return;
+function openPostThread(id, push = true, kind = 'post') {
+  if (!validPostID(id) || !accountSession || (activeThread?.id === id && activeThread.kind === kind)) return;
   const previous = activeThread;
   clearTimeout(previous?.timer);
-  if (push) history.pushState({speedyThread: true}, '', threadURL(id));
+  if (push) history.pushState({speedyThread: true}, '', threadURL(id, kind));
   activeThread = {
-    id, version: 0, parents: [], replies: [],
+    id, kind, version: 0, parents: [], replies: [],
     returnScroll: previous?.returnScroll ?? window.scrollY,
     needsTimeline: previous?.needsTimeline ?? !livePosts.length
   };
@@ -594,8 +652,11 @@ function openPostThread(id, push = true) {
   document.body.classList.add('thread-view');
   $('#thread').hidden = false;
   $('#threadContent').replaceChildren();
-  $('#heading').textContent = 'Thread';
-  $('#subtitle').textContent = 'Post and replies';
+  const profile = kind === 'profile';
+  $('#thread').setAttribute('aria-label', profile ? 'Account profile' : 'Post thread');
+  $('#refreshThread').textContent = profile ? 'Refresh profile ↻' : 'Refresh thread ↻';
+  $('#heading').textContent = profile ? 'Profile' : 'Thread';
+  $('#subtitle').textContent = profile ? 'Mastodon account' : 'Post and replies';
   $('#threadBack').focus({preventScroll: true});
   window.scrollTo({top: 0, behavior: 'instant'});
   void loadPostThread(activeThread);
@@ -634,8 +695,10 @@ $('#threadBack').onclick = () => {
 };
 
 window.addEventListener('popstate', () => {
-  const id = threadIDFromURL();
-  if (id) openPostThread(id, false);
+  const profile = profileIDFromURL();
+  const post = threadIDFromURL();
+  if (profile) openPostThread(profile, false, 'profile');
+  else if (post) openPostThread(post, false);
   else closePostThread();
 });
 
@@ -660,7 +723,7 @@ function paintProfileImages(account, name) {
 }
 
 function paintAccount(){const name=me.display_name||me.username;$('#profile b').innerHTML=customEmojiMarkup(name,me.emojis);$('#profile small').textContent='@'+me.acct;paintProfileImages(me, name);$('#draft').placeholder=`What's on your mind, ${name}?`;$('.demo').innerHTML='<span class="dot"></span><span id="connectedLabel"></span> <button id="accountButton">Account / sign out</button>';$('#connectedLabel').textContent='Connected to '+new URL(accountSession.origin).hostname;$('#accountButton').onclick=openAccount;$('#signinTop').textContent='Account';$('.composerbottom>span').innerHTML='<label>Post visibility <select id="visibility"><option value="public" selected>Public</option><option value="unlisted">Unlisted</option><option value="private">Followers only</option></select></label>';$('#search').placeholder='Filter loaded posts';$('.note').innerHTML='Connected directly to your Mastodon server.<br>Account data stays in this tab.';$('#loadmore').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));}
-async function connect(){me=(await api('/api/v1/accounts/verify_credentials')).data;if(!me.id)throw Error('Could not verify your Mastodon account.');paintAccount();const id=threadIDFromURL();if(id)openPostThread(id,false);else await loadTimeline()}
+async function connect(){me=(await api('/api/v1/accounts/verify_credentials')).data;if(!me.id)throw Error('Could not verify your Mastodon account.');paintAccount();const profile=profileIDFromURL(),id=threadIDFromURL();if(profile)openPostThread(profile,false,'profile');else if(id)openPostThread(id,false);else await loadTimeline()}
 const SESSION_KEY = 'swift-account';
 
 function storeAccount(session) {
@@ -706,7 +769,7 @@ function showAccountRetry() {
   error.append(retry);
 }
 
-async function finishLogin(){const params=new URLSearchParams(location.search);try{if(params.has('code')||params.has('error')){history.replaceState({},'',location.pathname);let pending;try{pending=JSON.parse(sessionStorage.getItem('swift-oauth-pending'))}catch{}sessionStorage.removeItem('swift-oauth-pending');if(!pending||pending.state!==params.get('state')||Date.now()-pending.created>900000)throw Error('Sign-in expired or could not be verified. Please start again.');if(params.has('error'))throw Error('Sign-in was cancelled. You can try again whenever you’re ready.');const result=(await request(pending.origin,'/oauth/token',{method:'POST',body:{grant_type:'authorization_code',code:params.get('code'),client_id:pending.clientId,client_secret:pending.clientSecret,redirect_uri:pending.redirect,code_verifier:pending.verifier}})).data;if(!result.access_token)throw Error('Your server did not return an access token.');accountSession={origin:pending.origin,clientId:pending.clientId,clientSecret:pending.clientSecret,token:result.access_token};storeAccount(accountSession);if(pending.returnView==='Notifications')view='Notifications';if(validPostID(pending.postID))history.replaceState(null,'',threadURL(pending.postID))}else{accountSession=restoreAccount()}if(accountSession){await connect();if($('#liveerror').querySelector('[data-session-retry]'))$('#liveerror').textContent=''}else if(threadIDFromURL())openAccount()}catch(error){$('#liveerror').textContent=error.message;if(accountSession&&!me&&error.status!==401){showAccountRetry();return}if(!me){accountSession=null;if(error.status===401)forgetAccount()}openAccount();authMessage(error.message)}}
+async function finishLogin(){const params=new URLSearchParams(location.search);try{if(params.has('code')||params.has('error')){history.replaceState({},'',location.pathname);let pending;try{pending=JSON.parse(sessionStorage.getItem('swift-oauth-pending'))}catch{}sessionStorage.removeItem('swift-oauth-pending');if(!pending||pending.state!==params.get('state')||Date.now()-pending.created>900000)throw Error('Sign-in expired or could not be verified. Please start again.');if(params.has('error'))throw Error('Sign-in was cancelled. You can try again whenever you’re ready.');const result=(await request(pending.origin,'/oauth/token',{method:'POST',body:{grant_type:'authorization_code',code:params.get('code'),client_id:pending.clientId,client_secret:pending.clientSecret,redirect_uri:pending.redirect,code_verifier:pending.verifier}})).data;if(!result.access_token)throw Error('Your server did not return an access token.');accountSession={origin:pending.origin,clientId:pending.clientId,clientSecret:pending.clientSecret,token:result.access_token};storeAccount(accountSession);if(pending.returnView==='Notifications')view='Notifications';if(validPostID(pending.profileID))history.replaceState(null,'',threadURL(pending.profileID,'profile'));else if(validPostID(pending.postID))history.replaceState(null,'',threadURL(pending.postID))}else{accountSession=restoreAccount()}if(accountSession){await connect();if($('#liveerror').querySelector('[data-session-retry]'))$('#liveerror').textContent=''}else if(threadIDFromURL()||profileIDFromURL())openAccount()}catch(error){$('#liveerror').textContent=error.message;if(accountSession&&!me&&error.status!==401){showAccountRetry();return}if(!me){accountSession=null;if(error.status===401)forgetAccount()}openAccount();authMessage(error.message)}}
 async function logout(){stopLiveStream();closePostThread(false);const button=$('#signout');button.disabled=true;let failed=false;try{await request(accountSession.origin,'/oauth/revoke',{method:'POST',body:{client_id:accountSession.clientId,client_secret:accountSession.clientSecret,token:accountSession.token}})}catch{failed=true}requestNumber++;forgetAccount();sessionStorage.removeItem('swift-oauth-pending');sessionStorage.removeItem('swift-draft');if(failed){$('#signedName').textContent='Signed out locally. Your server could not revoke access. You can revoke speedy-fedi under Preferences → Account → Authorized apps on your server.';accountSession=null;me=null;$('#signout').textContent='Back to demo';$('#signout').disabled=false;$('#signout').onclick=()=>location.replace(location.pathname);$('#accountClose').onclick=()=>location.replace(location.pathname);livePosts=[];$('#feed').innerHTML='';return}location.replace(location.pathname)}
 // Capture live interactions before the isolated demo handlers run.
 function favouriteIcon(selected) {
@@ -742,6 +805,7 @@ async function toggleLiveReaction(button, post, type) {
       return item.reblog ? {...item, reblog: revised} : revised;
     };
     livePosts = livePosts.map(update);
+    if (activeThread?.kind === 'profile') activeThread.replies = activeThread.replies.map(update);
     if (activeThread?.post) {
       const before = activeThread.post;
       activeThread.post = update(before);
@@ -767,6 +831,14 @@ async function toggleLiveReaction(button, post, type) {
 }
 
 document.addEventListener('click',async event=>{if(!accountSession||!me)return;const target=event.target;
+  const profileLink = target.closest('[data-open-profile]');
+  if (profileLink && event.button === 0 && !event.metaKey && !event.ctrlKey &&
+      !event.shiftKey && !event.altKey) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openPostThread(profileLink.dataset.openProfile, true, 'profile');
+    return;
+  }
   const threadLink = target.closest('[data-open-thread]');
   const clickedPost = target.closest('#feed article[data-status], #threadContent article[data-status]');
   const interactive = target.closest('a,button,input,textarea,select,label,summary,video,audio,[contenteditable]');
