@@ -837,34 +837,74 @@ function paintProfileImages(account, name) {
 function paintAccount(){const name=me.display_name||me.username;$('#profile b').innerHTML=customEmojiMarkup(name,me.emojis);$('#profile small').textContent='@'+me.acct;paintProfileImages(me, name);$('#draft').placeholder=`What's on your mind, ${name}?`;$('.demo').innerHTML='<span class="dot"></span><span id="connectedLabel"></span> <button id="accountButton">Account / sign out</button>';$('#connectedLabel').textContent='Connected to '+new URL(accountSession.origin).hostname;$('#accountButton').onclick=openAccount;$('#signinTop').textContent='Account';$('.composerbottom>span').innerHTML='<label>Post visibility <select id="visibility"><option value="public" selected>Public</option><option value="unlisted">Unlisted</option><option value="private">Followers only</option></select></label>';$('#search').placeholder='Filter loaded posts';$('.note').innerHTML='Connected directly to your Mastodon server.<br>Account data stays in this tab.';$('#loadmore').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));}
 async function connect(){me=(await api('/api/v1/accounts/verify_credentials')).data;if(!me.id)throw Error('Could not verify your Mastodon account.');paintAccount();const profile=profileIDFromURL(),id=threadIDFromURL();if(profile)openPostThread(profile,false,'profile');else if(id)openPostThread(id,false);else await loadTimeline()}
 const SESSION_KEY = 'swift-account';
+const ACCOUNT_DATABASE = 'speedy-fedi-account';
 
-function storeAccount(session) {
-  const encoded = JSON.stringify(session);
-  try {
-    localStorage.setItem(SESSION_KEY, encoded);
-  } catch {
-    try { sessionStorage.setItem(SESSION_KEY, encoded); } catch {}
-    return;
-  }
-  try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+function accountStorage(mode, operation) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open(ACCOUNT_DATABASE, 1);
+    open.onupgradeneeded = () => open.result.createObjectStore('sessions');
+    open.onerror = () => reject(open.error);
+    open.onblocked = () => reject(Error('Account storage is unavailable.'));
+    open.onsuccess = () => {
+      const db = open.result;
+      try {
+        const transaction = db.transaction('sessions', mode);
+        const request = operation(transaction.objectStore('sessions'));
+        transaction.oncomplete = () => { db.close(); resolve(request.result); };
+        transaction.onabort = () => { db.close(); reject(transaction.error); };
+      } catch (error) {
+        db.close();
+        reject(error);
+      }
+    };
+  });
 }
 
-function restoreAccount() {
-  for (const storageName of ['localStorage', 'sessionStorage']) {
+function readLegacyAccount() {
+  for (const name of ['localStorage', 'sessionStorage']) {
     try {
-      const session = JSON.parse(window[storageName].getItem(SESSION_KEY));
-      if (!session?.origin || !session.token) continue;
-      if (storageName === 'sessionStorage') storeAccount(session);
-      return session;
+      const session = JSON.parse(window[name].getItem(SESSION_KEY));
+      if (session?.origin && session.token) return session;
     } catch {}
   }
   return null;
 }
 
-function forgetAccount() {
-  for (const storageName of ['localStorage', 'sessionStorage']) {
-    try { window[storageName].removeItem(SESSION_KEY); } catch {}
+function clearLegacyAccount() {
+  for (const name of ['localStorage', 'sessionStorage']) {
+    try { window[name].removeItem(SESSION_KEY); } catch {}
   }
+}
+
+async function storeAccount(session) {
+  try {
+    await accountStorage('readwrite', store => store.put(session, SESSION_KEY));
+    clearLegacyAccount();
+  } catch {
+    const encoded = JSON.stringify(session);
+    try { localStorage.setItem(SESSION_KEY, encoded); return; } catch {}
+    try { sessionStorage.setItem(SESSION_KEY, encoded); } catch {}
+  }
+}
+
+async function restoreAccount() {
+  const legacy = readLegacyAccount();
+  if (legacy) {
+    await storeAccount(legacy);
+    return legacy;
+  }
+  try {
+    const saved = await accountStorage('readonly', store => store.get(SESSION_KEY));
+    if (saved?.origin && saved.token) return saved;
+  } catch {}
+  return null;
+}
+
+async function forgetAccount() {
+  clearLegacyAccount();
+  try {
+    await accountStorage('readwrite', store => store.delete(SESSION_KEY));
+  } catch {}
 }
 
 function showAccountRetry() {
@@ -881,8 +921,8 @@ function showAccountRetry() {
   error.append(retry);
 }
 
-async function finishLogin(){const params=new URLSearchParams(location.search);try{if(params.has('code')||params.has('error')){history.replaceState({},'',location.pathname);let pending;try{pending=JSON.parse(sessionStorage.getItem('swift-oauth-pending'))}catch{}sessionStorage.removeItem('swift-oauth-pending');if(!pending||pending.state!==params.get('state')||Date.now()-pending.created>900000)throw Error('Sign-in expired or could not be verified. Please start again.');if(params.has('error'))throw Error('Sign-in was cancelled. You can try again whenever you’re ready.');const result=(await request(pending.origin,'/oauth/token',{method:'POST',body:{grant_type:'authorization_code',code:params.get('code'),client_id:pending.clientId,client_secret:pending.clientSecret,redirect_uri:pending.redirect,code_verifier:pending.verifier}})).data;if(!result.access_token)throw Error('Your server did not return an access token.');accountSession={origin:pending.origin,clientId:pending.clientId,clientSecret:pending.clientSecret,token:result.access_token};storeAccount(accountSession);if(pending.returnView==='Notifications')view='Notifications';if(validPostID(pending.profileID))history.replaceState(null,'',threadURL(pending.profileID,'profile'));else if(validPostID(pending.postID))history.replaceState(null,'',threadURL(pending.postID))}else{accountSession=restoreAccount()}if(accountSession){await connect();if($('#liveerror').querySelector('[data-session-retry]'))$('#liveerror').textContent=''}else if(threadIDFromURL()||profileIDFromURL())openAccount()}catch(error){$('#liveerror').textContent=error.message;if(accountSession&&!me&&error.status!==401){showAccountRetry();return}if(!me){accountSession=null;if(error.status===401)forgetAccount()}openAccount();authMessage(error.message)}}
-async function logout(){stopLiveStream();closePostThread(false);const button=$('#signout');button.disabled=true;let failed=false;try{await request(accountSession.origin,'/oauth/revoke',{method:'POST',body:{client_id:accountSession.clientId,client_secret:accountSession.clientSecret,token:accountSession.token}})}catch{failed=true}requestNumber++;forgetAccount();sessionStorage.removeItem('swift-oauth-pending');sessionStorage.removeItem('swift-draft');if(failed){$('#signedName').textContent='Signed out locally. Your server could not revoke access. You can revoke speedy-fedi under Preferences → Account → Authorized apps on your server.';accountSession=null;me=null;$('#signout').textContent='Back to demo';$('#signout').disabled=false;$('#signout').onclick=()=>location.replace(location.pathname);$('#accountClose').onclick=()=>location.replace(location.pathname);livePosts=[];$('#feed').innerHTML='';return}location.replace(location.pathname)}
+async function finishLogin(){const params=new URLSearchParams(location.search);try{if(params.has('code')||params.has('error')){history.replaceState({},'',location.pathname);let pending;try{pending=JSON.parse(sessionStorage.getItem('swift-oauth-pending'))}catch{}sessionStorage.removeItem('swift-oauth-pending');if(!pending||pending.state!==params.get('state')||Date.now()-pending.created>900000)throw Error('Sign-in expired or could not be verified. Please start again.');if(params.has('error'))throw Error('Sign-in was cancelled. You can try again whenever you’re ready.');const result=(await request(pending.origin,'/oauth/token',{method:'POST',body:{grant_type:'authorization_code',code:params.get('code'),client_id:pending.clientId,client_secret:pending.clientSecret,redirect_uri:pending.redirect,code_verifier:pending.verifier}})).data;if(!result.access_token)throw Error('Your server did not return an access token.');accountSession={origin:pending.origin,clientId:pending.clientId,clientSecret:pending.clientSecret,token:result.access_token};await storeAccount(accountSession);if(pending.returnView==='Notifications')view='Notifications';if(validPostID(pending.profileID))history.replaceState(null,'',threadURL(pending.profileID,'profile'));else if(validPostID(pending.postID))history.replaceState(null,'',threadURL(pending.postID))}else{accountSession=await restoreAccount()}if(accountSession){$('#liveerror').textContent='Reconnecting to Mastodon…';await connect();if($('#liveerror').textContent==='Reconnecting to Mastodon…')$('#liveerror').textContent=''}else if(threadIDFromURL()||profileIDFromURL())openAccount()}catch(error){$('#liveerror').textContent=error.message;if(accountSession&&!me&&error.status!==401){showAccountRetry();return}if(!me){if(accountSession)$('#instance').value=accountSession.origin;accountSession=null}openAccount();authMessage(error.message)}}
+async function logout(){stopLiveStream();closePostThread(false);const button=$('#signout');button.disabled=true;let failed=false;try{await request(accountSession.origin,'/oauth/revoke',{method:'POST',body:{client_id:accountSession.clientId,client_secret:accountSession.clientSecret,token:accountSession.token}})}catch{failed=true}requestNumber++;await forgetAccount();sessionStorage.removeItem('swift-oauth-pending');sessionStorage.removeItem('swift-draft');if(failed){$('#signedName').textContent='Signed out locally. Your server could not revoke access. You can revoke speedy-fedi under Preferences → Account → Authorized apps on your server.';accountSession=null;me=null;$('#signout').textContent='Back to demo';$('#signout').disabled=false;$('#signout').onclick=()=>location.replace(location.pathname);$('#accountClose').onclick=()=>location.replace(location.pathname);livePosts=[];$('#feed').innerHTML='';return}location.replace(location.pathname)}
 // Capture live interactions before the isolated demo handlers run.
 function favouriteIcon(selected) {
   return selected ? '♥' : '♡';
