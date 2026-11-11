@@ -64,7 +64,7 @@ function renderLive(appendedPosts) {
     $('#loadmore').hidden = !nextPage;
     return;
   }
-  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver']){ $('#'+k).checked=state[k];$('#modal'+k).checked=state[k] }$('#heading').textContent=view;$('#subtitle').textContent=view==='Home'?'Your people. Your pace.':view==='Explore'?'Conversations across your server.':'Saved on your Mastodon account.';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account.acct} ${p.account.display_name}`.toLowerCase().includes(q)});feed.innerHTML=posts.map(statusMarkup).join('')||'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>';$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent=''}
+  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver']){ $('#'+k).checked=state[k];$('#modal'+k).checked=state[k] }$('#heading').textContent=view;$('#subtitle').textContent=view==='Live'?'New posts every 15 seconds.':view==='Home'?'Your people. Your pace.':view==='Explore'?'Conversations across your server.':'Saved on your Mastodon account.';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account.acct} ${p.account.display_name}`.toLowerCase().includes(q)});feed.innerHTML=posts.map(statusMarkup).join('')||'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>';$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent=''}
 function loadMedia(button) {
   const post = livePosts.map(wrapper => wrapper.reblog || wrapper)
     .find(post => post.id === button.dataset.media);
@@ -117,6 +117,7 @@ async function loadTimeline(more = false) {
     livePosts = [];
     nextPage = null;
     autoLoadPaused = false;
+    nextLiveCheck = 0;
     loadMore.hidden = true;
     feed.innerHTML = '<div class="empty">Loading your timeline…</div>';
   }
@@ -154,6 +155,66 @@ async function loadTimeline(more = false) {
   }
 }
 
+const LIVE_REFRESH_MS = 15_000;
+let liveRefreshPending = false;
+let nextLiveCheck = 0;
+
+async function refreshLiveFeed() {
+  if (view !== 'Live' || !accountSession || !me || document.hidden ||
+      liveRefreshPending || $('#refresh').disabled || Date.now() < nextLiveCheck) return;
+
+  const ticket = requestNumber;
+  const session = accountSession;
+  const path = timelinePath();
+  const latest = livePosts[0]?.id;
+  const params = new URLSearchParams({limit: '20'});
+  if (latest) params.set('min_id', latest);
+  const url = path + (path.includes('?') ? '&' : '?') + params;
+  liveRefreshPending = true;
+  nextLiveCheck = Date.now() + LIVE_REFRESH_MS;
+
+  try {
+    const {data, response} = await api(url);
+    if (view !== 'Live' || ticket !== requestNumber || accountSession !== session ||
+        !Array.isArray(data)) return;
+    const seen = new Set(livePosts.map(post => post.id));
+    const fresh = data.filter(post => {
+      if (seen.has(post.id)) return false;
+      seen.add(post.id);
+      return true;
+    });
+    if (!fresh.length) return;
+    livePosts.unshift(...fresh);
+    if (!latest) nextPage = nextLink(response.headers.get('Link'), session.origin);
+    prependLivePosts(fresh);
+  } catch {
+    nextLiveCheck = Date.now() + 60_000;
+  } finally {
+    liveRefreshPending = false;
+  }
+}
+
+function prependLivePosts(posts) {
+  const feed = $('#feed');
+  if ($('#search').value || feed.querySelector('.empty')) {
+    renderLive();
+    return;
+  }
+  const anchor = feed.firstElementChild;
+  const top = anchor?.getBoundingClientRect().top;
+  feed.insertAdjacentHTML('afterbegin', posts.map(statusMarkup).join(''));
+  if (top < 0) {
+    const shift = anchor.getBoundingClientRect().top - top;
+    if (shift) window.scrollBy({top: shift, behavior: 'instant'});
+  }
+  $('#loadmore').hidden = !nextPage;
+}
+
+window.setInterval(refreshLiveFeed, LIVE_REFRESH_MS);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) void refreshLiveFeed();
+});
+
 function paintProfileImages(account, name) {
   const initials = name.slice(0, 2).toUpperCase();
   const staticAvatar = safeURL(account.avatar_static);
@@ -179,7 +240,7 @@ async function connect(){me=(await api('/api/v1/accounts/verify_credentials')).d
 async function finishLogin(){const params=new URLSearchParams(location.search);try{if(params.has('code')||params.has('error')){history.replaceState({},'',location.pathname);let pending;try{pending=JSON.parse(sessionStorage.getItem('swift-oauth-pending'))}catch{}sessionStorage.removeItem('swift-oauth-pending');if(!pending||pending.state!==params.get('state')||Date.now()-pending.created>900000)throw Error('Sign-in expired or could not be verified. Please start again.');if(params.has('error'))throw Error('Sign-in was cancelled. You can try again whenever you’re ready.');const result=(await request(pending.origin,'/oauth/token',{method:'POST',body:{grant_type:'authorization_code',code:params.get('code'),client_id:pending.clientId,client_secret:pending.clientSecret,redirect_uri:pending.redirect,code_verifier:pending.verifier}})).data;if(!result.access_token)throw Error('Your server did not return an access token.');accountSession={origin:pending.origin,clientId:pending.clientId,clientSecret:pending.clientSecret,token:result.access_token};sessionStorage.setItem('swift-account',JSON.stringify(accountSession))}else{accountSession=JSON.parse(sessionStorage.getItem('swift-account')||'null')}if(accountSession)await connect()}catch(error){$('#liveerror').textContent=error.message;if(!me){accountSession=null;sessionStorage.removeItem('swift-account')}openAccount();authMessage(error.message)}}
 async function logout(){const button=$('#signout');button.disabled=true;let failed=false;try{await request(accountSession.origin,'/oauth/revoke',{method:'POST',body:{client_id:accountSession.clientId,client_secret:accountSession.clientSecret,token:accountSession.token}})}catch{failed=true}requestNumber++;sessionStorage.removeItem('swift-account');sessionStorage.removeItem('swift-oauth-pending');sessionStorage.removeItem('swift-draft');if(failed){$('#signedName').textContent='Signed out locally. Your server could not revoke access. You can revoke Swift under Preferences → Account → Authorized apps on your server.';accountSession=null;me=null;$('#signout').textContent='Back to demo';$('#signout').disabled=false;$('#signout').onclick=()=>location.replace(location.pathname);$('#accountClose').onclick=()=>location.replace(location.pathname);livePosts=[];$('#feed').innerHTML='';return}location.replace(location.pathname)}
 // Capture live interactions before the isolated demo handlers run.
-document.addEventListener('click',async event=>{if(!accountSession||!me)return;const target=event.target;const navButton=target.closest('[data-view]'), tabButton=target.closest('[data-tab]'), action=target.closest('[data-liveaction]'), media=target.closest('[data-media]');if(navButton){event.stopImmediatePropagation();if(navButton.dataset.view==='Settings'){$('#modal').showModal();return}view=navButton.dataset.view;tab='Following';$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();return}if(tabButton){event.stopImmediatePropagation();tab=tabButton.dataset.tab;view='Home';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b===tabButton));await loadTimeline();return}if(target.closest('#refresh')){event.stopImmediatePropagation();await loadTimeline();return}if(target.closest('#profile')){event.stopImmediatePropagation();openAccount();return}if(target.closest('[data-search]')){event.stopImmediatePropagation();$('#search').value=target.closest('[data-search]').dataset.search;renderLive();return}if(media){event.stopImmediatePropagation();loadMedia(media);return}if(action){event.stopImmediatePropagation();const id=action.dataset.id;const p=livePosts.map(p=>p.reblog||p).find(p=>p.id===id);if(!p)return;const type=action.dataset.liveaction;if(type==='reply'){replyTo=p.id;$('#draft').value='@'+p.account.acct+' ';$('#replylabel').textContent='Replying to @'+p.account.acct;$('#cancelreply').hidden=false;$('#visibility').value=['private','direct'].includes(p.visibility)?'private':'unlisted';if(p.visibility==='direct'){toast('Open the original post to reply privately.');replyTo=null;$('#draft').value='';$('#replylabel').textContent='';$('#cancelreply').hidden=true;return}$('#draft').dispatchEvent(new Event('input'));$('#draft').focus();$('.composer').scrollIntoView({behavior:'smooth'});return}action.disabled=true;try{const endpoint=type==='boost'?(p.reblogged?'unreblog':'reblog'):type==='favourite'?(p.favourited?'unfavourite':'favourite'):(p.bookmarked?'unbookmark':'bookmark');const {data}=await api(`/api/v1/statuses/${encodeURIComponent(id)}/${endpoint}`,{method:'POST'});const fresh=data.reblog||data;livePosts=livePosts.map(w=>(w.reblog||w).id===id?(w.reblog?{...w,reblog:fresh}:fresh):w);renderLive()}catch(error){toast(error.message);action.disabled=false}return}if(target.closest('#post')){event.stopImmediatePropagation();const status=$('#draft').value.trim();if(!status)return;const button=$('#post');button.disabled=true;const visibility=$('#visibility').value;const signature=JSON.stringify([status,visibility,replyTo]);if(!pendingPost||pendingPost.signature!==signature)pendingPost={signature,key:crypto.randomUUID()};try{await api('/api/v1/statuses',{method:'POST',headers:{'Idempotency-Key':pendingPost.key},body:{status,visibility,...(replyTo?{in_reply_to_id:replyTo}:{})}});pendingPost=null;replyTo=null;$('#replylabel').textContent='';$('#cancelreply').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));view='Home';tab='Following';$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();toast('Published to Mastodon.')}catch(error){$('#liveerror').textContent=error.message}finally{button.disabled=false}}},true);
+document.addEventListener('click',async event=>{if(!accountSession||!me)return;const target=event.target;const navButton=target.closest('[data-view]'), tabButton=target.closest('[data-tab]'), action=target.closest('[data-liveaction]'), media=target.closest('[data-media]');if(navButton){event.stopImmediatePropagation();if(navButton.dataset.view==='Settings'){$('#modal').showModal();return}view=navButton.dataset.view;$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();return}if(tabButton){event.stopImmediatePropagation();tab=tabButton.dataset.tab;if(view!=='Live')view='Home';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b===tabButton));await loadTimeline();return}if(target.closest('#refresh')){event.stopImmediatePropagation();await loadTimeline();return}if(target.closest('#profile')){event.stopImmediatePropagation();openAccount();return}if(target.closest('[data-search]')){event.stopImmediatePropagation();$('#search').value=target.closest('[data-search]').dataset.search;renderLive();return}if(media){event.stopImmediatePropagation();loadMedia(media);return}if(action){event.stopImmediatePropagation();const id=action.dataset.id;const p=livePosts.map(p=>p.reblog||p).find(p=>p.id===id);if(!p)return;const type=action.dataset.liveaction;if(type==='reply'){replyTo=p.id;$('#draft').value='@'+p.account.acct+' ';$('#replylabel').textContent='Replying to @'+p.account.acct;$('#cancelreply').hidden=false;$('#visibility').value=['private','direct'].includes(p.visibility)?'private':'unlisted';if(p.visibility==='direct'){toast('Open the original post to reply privately.');replyTo=null;$('#draft').value='';$('#replylabel').textContent='';$('#cancelreply').hidden=true;return}$('#draft').dispatchEvent(new Event('input'));$('#draft').focus();$('.composer').scrollIntoView({behavior:'smooth'});return}action.disabled=true;try{const endpoint=type==='boost'?(p.reblogged?'unreblog':'reblog'):type==='favourite'?(p.favourited?'unfavourite':'favourite'):(p.bookmarked?'unbookmark':'bookmark');const {data}=await api(`/api/v1/statuses/${encodeURIComponent(id)}/${endpoint}`,{method:'POST'});const fresh=data.reblog||data;livePosts=livePosts.map(w=>(w.reblog||w).id===id?(w.reblog?{...w,reblog:fresh}:fresh):w);renderLive()}catch(error){toast(error.message);action.disabled=false}return}if(target.closest('#post')){event.stopImmediatePropagation();const status=$('#draft').value.trim();if(!status)return;const button=$('#post');button.disabled=true;const visibility=$('#visibility').value;const signature=JSON.stringify([status,visibility,replyTo]);if(!pendingPost||pendingPost.signature!==signature)pendingPost={signature,key:crypto.randomUUID()};try{await api('/api/v1/statuses',{method:'POST',headers:{'Idempotency-Key':pendingPost.key},body:{status,visibility,...(replyTo?{in_reply_to_id:replyTo}:{})}});pendingPost=null;replyTo=null;$('#replylabel').textContent='';$('#cancelreply').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));if(view!=='Live')view='Home';$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();toast('Published to Mastodon.')}catch(error){$('#liveerror').textContent=error.message}finally{button.disabled=false}}},true);
 document.addEventListener('input',e=>{if(accountSession&&e.target.id==='search'){e.stopImmediatePropagation();renderLive()}},true);
 document.addEventListener('change',e=>{if(!accountSession)return;const id=e.target.id.replace('modal','');if(['compact','saver'].includes(id)){e.stopImmediatePropagation();state[id]=e.target.checked;save();renderLive()}},true);
 $('#signinTop').onclick=openAccount;$('#accountClose').onclick=()=>$('#accountDialog').close();$('#signinForm').onsubmit=startLogin;$('#signout').onclick=logout;$('#loadmore').onclick=()=>loadTimeline(true);$('#cancelreply').onclick=()=>{replyTo=null;$('#replylabel').textContent='';$('#cancelreply').hidden=true};
