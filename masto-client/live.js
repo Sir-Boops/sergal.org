@@ -19,7 +19,7 @@ async function request(origin,path,{token,method='GET',body,headers={}}={}){let 
 const api=(path,options={})=>request(accountSession.origin,path,{...options,token:accountSession.token});
 function authMessage(text){$('#autherror').textContent=text}
 function openAccount(){ $('#accountTitle').textContent=me?'Your Mastodon account':'Sign in to Mastodon';$('#signinForm').hidden=!!me;$('#signedAccount').hidden=!me;$('#signedName').textContent=me?`@${me.acct.includes('@')?me.acct:me.acct+'@'+new URL(accountSession.origin).hostname}`:'';$('#accountDialog').showModal() }
-async function startLogin(event){event.preventDefault();const button=$('#signinSubmit');button.disabled=true;authMessage('Connecting to your server…');try{const origin=serverOrigin($('#instance').value);sessionStorage.setItem('swift-storage-check','1');sessionStorage.removeItem('swift-storage-check');const metadata=(await request(origin,'/.well-known/oauth-authorization-server')).data;if(!metadata.code_challenge_methods_supported?.includes('S256'))throw Error('This client requires a Mastodon server with PKCE support (Mastodon 4.3 or newer).');const redirect=location.origin+'/masto-client/';const app=(await request(origin,'/api/v1/apps',{method:'POST',body:{client_name:'speedy-fedi',redirect_uris:redirect,scopes:SCOPES,website:location.origin}})).data;if(!app.client_id||!app.client_secret)throw Error('Your server did not return application credentials.');const verifier=randomString(), state=randomString();const pending={origin,clientId:app.client_id,clientSecret:app.client_secret,redirect,verifier,state,created:Date.now()};sessionStorage.setItem('swift-oauth-pending',JSON.stringify(pending));const params=new URLSearchParams({response_type:'code',client_id:app.client_id,redirect_uri:redirect,scope:SCOPES,state,code_challenge:await challenge(verifier),code_challenge_method:'S256'});location.assign(origin+'/oauth/authorize?'+params)}catch(error){authMessage(error.message);button.disabled=false}}
+async function startLogin(event){event.preventDefault();const button=$('#signinSubmit');button.disabled=true;authMessage('Connecting to your server…');try{const origin=serverOrigin($('#instance').value);sessionStorage.setItem('swift-storage-check','1');sessionStorage.removeItem('swift-storage-check');const metadata=(await request(origin,'/.well-known/oauth-authorization-server')).data;if(!metadata.code_challenge_methods_supported?.includes('S256'))throw Error('This client requires a Mastodon server with PKCE support (Mastodon 4.3 or newer).');const redirect=location.origin+'/masto-client/';const app=(await request(origin,'/api/v1/apps',{method:'POST',body:{client_name:'speedy-fedi',redirect_uris:redirect,scopes:SCOPES,website:location.origin}})).data;if(!app.client_id||!app.client_secret)throw Error('Your server did not return application credentials.');const verifier=randomString(), state=randomString();const pending={origin,clientId:app.client_id,clientSecret:app.client_secret,redirect,verifier,state,postID:threadIDFromURL(),created:Date.now()};sessionStorage.setItem('swift-oauth-pending',JSON.stringify(pending));const params=new URLSearchParams({response_type:'code',client_id:app.client_id,redirect_uri:redirect,scope:SCOPES,state,code_challenge:await challenge(verifier),code_challenge_method:'S256'});location.assign(origin+'/oauth/authorize?'+params)}catch(error){authMessage(error.message);button.disabled=false}}
 function plainContent(html){const doc=new DOMParser().parseFromString(html||'','text/html');doc.querySelectorAll('script,style').forEach(n=>n.remove());doc.querySelectorAll('br').forEach(n=>n.replaceWith('\n'));doc.querySelectorAll('p').forEach(n=>n.append('\n\n'));return doc.body.textContent.trim()}
 function imagePreview(media) {
   return safeURL(media.preview_url) || safeURL(media.url);
@@ -55,7 +55,7 @@ $('#feed').addEventListener('load', event => {
   }
 }, true);
 
-function statusMarkup(wrapper, prioritizeImages = false){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${esc(plainContent(p.content))}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,hidden||state.saver,prioritizeImages===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}${link?`<a class="original" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open original ↗</a>`:''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${esc(wrapper.account.display_name||wrapper.account.username)} boosted</small>`:''}<div class="posttop">${timelineAvatar(a, name)}<div class="author"><b>${esc(name)}</b><small>@${esc(a.acct)}</small></div><time class="time" datetime="${esc(p.created_at)}">${esc(new Date(p.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</time></div><div class="body">${hidden?`<details><summary>${esc(p.spoiler_text||'Sensitive or filtered content')} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${p.replies_count}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${p.reblogs_count}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>♡</span>${p.favourites_count}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
+function statusMarkup(wrapper, prioritizeImages = false){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${esc(plainContent(p.content))}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,hidden||state.saver,prioritizeImages===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}${link?`<a class="original" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open original ↗</a>`:''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${esc(wrapper.account.display_name||wrapper.account.username)} boosted</small>`:''}<div class="posttop">${timelineAvatar(a, name)}<div class="author"><b>${esc(name)}</b><small>@${esc(a.acct)}</small></div><a class="thread-link" data-open-thread="${esc(p.id)}" href="?post=${encodeURIComponent(p.id)}" aria-label="Open post and replies"><time class="time" datetime="${esc(p.created_at)}">${esc(new Date(p.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}))}</time></a></div><div class="body">${hidden?`<details><summary>${esc(p.spoiler_text||'Sensitive or filtered content')} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${esc(p.replies_count ?? 0)}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${esc(p.reblogs_count ?? 0)}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>♡</span>${esc(p.favourites_count ?? 0)}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
 function startHomeImage(image, priority) {
   image.fetchPriority = priority;
   image.src = image.dataset.homePreview;
@@ -78,7 +78,15 @@ function loadHomeImages(images) {
   });
 }
 
+function updateTimelineSubtitle() {
+  $('#subtitle').textContent=view==='Live'?liveStatus:view==='Home'?'Your people. Your pace.':view==='Explore'?'Conversations across your server.':'Saved on your Mastodon account.';
+}
+
 function renderLive(appendedPosts, prioritizeImages = false) {
+  if (activeThread) {
+    renderPostThread();
+    return;
+  }
   const feed = $('#feed');
   if (appendedPosts && !$('#search').value && !feed.querySelector('.empty')) {
     const page = document.createElement('template');
@@ -89,11 +97,11 @@ function renderLive(appendedPosts, prioritizeImages = false) {
     $('#loadmore').hidden = !nextPage;
     return;
   }
-  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver']){ $('#'+k).checked=state[k];$('#modal'+k).checked=state[k] }$('#heading').textContent=view;$('#subtitle').textContent=view==='Live'?liveStatus:view==='Home'?'Your people. Your pace.':view==='Explore'?'Conversations across your server.':'Saved on your Mastodon account.';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account.acct} ${p.account.display_name}`.toLowerCase().includes(q)});feed.innerHTML=posts.map(post=>statusMarkup(post,prioritizeImages)).join('')||'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>';$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent='';
+  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver']){ $('#'+k).checked=state[k];$('#modal'+k).checked=state[k] }$('#heading').textContent=view;updateTimelineSubtitle();document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account.acct} ${p.account.display_name}`.toLowerCase().includes(q)});feed.innerHTML=posts.map(post=>statusMarkup(post,prioritizeImages)).join('')||'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>';$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent='';
   if (prioritizeImages) loadHomeImages(feed.querySelectorAll('[data-home-preview]'));
 }
 function loadMedia(button) {
-  const post = livePosts.map(wrapper => wrapper.reblog || wrapper)
+  const post = displayedPosts().map(wrapper => wrapper.reblog || wrapper)
     .find(post => post.id === button.dataset.media);
   const attachment = post?.media_attachments?.find(media => media.id === button.dataset.mediaid);
   const preview = attachment && imagePreview(attachment);
@@ -113,7 +121,7 @@ let autoLoadPaused = false;
 let scrollCheckQueued = false;
 
 function canAutoLoad() {
-  return view !== 'Live' && me && nextPage && !autoLoadPaused && !$('#loadmore').disabled && !$('#search').value.trim();
+  return !activeThread && view !== 'Live' && me && nextPage && !autoLoadPaused && !$('#loadmore').disabled && !$('#search').value.trim();
 }
 
 window.addEventListener('scroll', () => {
@@ -128,6 +136,7 @@ window.addEventListener('scroll', () => {
 }, { passive: true });
 
 async function loadTimeline(more = false) {
+  if (activeThread) return;
   const loadMore = $('#loadmore');
   if (more && (!nextPage || loadMore.disabled)) return;
   const ticket = ++requestNumber;
@@ -204,7 +213,7 @@ function liveStreamName() {
 
 function setLiveStatus(message) {
   liveStatus = message;
-  if (view === 'Live') $('#subtitle').textContent = message;
+  if (view === 'Live' && !activeThread) $('#subtitle').textContent = message;
 }
 
 function stopLiveStream() {
@@ -218,7 +227,7 @@ function stopLiveStream() {
 }
 
 function startLiveStream() {
-  if (view !== 'Live' || !accountSession || liveConnection) return;
+  if (activeThread || view !== 'Live' || !accountSession || liveConnection) return;
   const connection = {session: accountSession, stream: liveStreamName(), delay: 1_000};
   liveConnection = connection;
   setLiveStatus('Connecting to the live feed…');
@@ -328,6 +337,175 @@ function prependLivePosts(posts) {
   $('#loadmore').hidden = !nextPage;
 }
 
+let activeThread = null;
+
+function validPostID(id) {
+  return typeof id === 'string' && /^\d{1,30}$/.test(id);
+}
+
+function threadIDFromURL() {
+  const id = new URLSearchParams(location.search).get('post');
+  return validPostID(id) ? id : null;
+}
+
+function threadURL(id) {
+  const url = new URL(location.href);
+  if (id) url.searchParams.set('post', id);
+  else url.searchParams.delete('post');
+  return url;
+}
+
+function displayedPosts() {
+  if (!activeThread?.post) return livePosts;
+  return [activeThread.post, ...activeThread.parents, ...activeThread.replies];
+}
+
+function renderPostThread(thread = activeThread) {
+  if (!thread?.post || activeThread !== thread) return;
+  const rows = posts => posts.map(post => statusMarkup(post)).join('');
+  $('#threadContent').innerHTML =
+    (thread.parents.length ? '<section><h2>Earlier in the thread</h2>' + rows(thread.parents) + '</section>' : '') +
+    '<section aria-label="Selected post">' + statusMarkup(thread.post) + '</section>' +
+    '<section><h2>Replies (' + thread.replies.length + ')</h2>' +
+    (thread.replies.length ? rows(thread.replies) : '<p class="empty">No replies yet.</p>') +
+    '</section>';
+}
+
+function readThreadContext(thread, data) {
+  if (!Array.isArray(data?.ancestors) || !Array.isArray(data?.descendants)) {
+    throw Error('Your server returned an unexpected thread.');
+  }
+  thread.parents = data.ancestors;
+  thread.replies = data.descendants;
+}
+
+function queueThreadRefresh(thread, response, attempt) {
+  if (attempt >= 3) {
+    $('#threadStatus').textContent = 'Your server may still be checking for replies.';
+    return;
+  }
+  const header = response.headers.get('Mastodon-Async-Refresh');
+  const retry = header?.match(/\bretry\s*=\s*(\d+)/i);
+  // Some instances start the job without exposing the header to browsers.
+  const delay = retry ? Math.max(1, Number(retry[1]))
+    : !header && attempt === 0 && thread.post?.account?.acct?.includes('@') ? 5 : null;
+  if (delay === null) {
+    $('#threadStatus').textContent = '';
+    return;
+  }
+  $('#threadStatus').textContent = 'Checking for newer replies…';
+  if (delay > 30) {
+    $('#threadStatus').textContent = 'Your server is still checking for replies. Try Refresh thread later.';
+    return;
+  }
+  thread.timer = setTimeout(() => void refreshThreadContext(thread, attempt + 1), delay * 1000);
+}
+
+async function refreshThreadContext(thread, attempt) {
+  const version = thread.version;
+  try {
+    const {data, response} = await api('/api/v1/statuses/' + thread.id + '/context');
+    if (activeThread !== thread || version !== thread.version) return;
+    const previous = JSON.stringify([thread.parents, thread.replies]);
+    readThreadContext(thread, data);
+    if (previous !== JSON.stringify([thread.parents, thread.replies])) renderPostThread(thread);
+    queueThreadRefresh(thread, response, attempt);
+  } catch {
+    if (activeThread === thread && version === thread.version) {
+      $('#threadStatus').textContent = 'Could not check for newer replies. Try Refresh thread.';
+    }
+  }
+}
+
+async function loadPostThread(thread) {
+  clearTimeout(thread.timer);
+  const version = ++thread.version;
+  $('#refreshThread').disabled = true;
+  $('#threadStatus').textContent = 'Loading thread…';
+  const path = '/api/v1/statuses/' + thread.id;
+  try {
+    const [post, context] = await Promise.allSettled([api(path), api(path + '/context')]);
+    if (activeThread !== thread || version !== thread.version) return;
+    if (post.status === 'rejected') throw post.reason;
+    if (!post.value.data?.account) throw Error('Your server returned an unexpected post.');
+    thread.post = post.value.data;
+    if (context.status === 'rejected') {
+      renderPostThread(thread);
+      $('#threadStatus').textContent = 'Could not load replies. Try Refresh thread.';
+      return;
+    }
+    readThreadContext(thread, context.value.data);
+    renderPostThread(thread);
+    queueThreadRefresh(thread, context.value.response, 0);
+  } catch (error) {
+    if (activeThread === thread && version === thread.version) {
+      $('#threadStatus').textContent = error.message || 'Could not load this thread.';
+    }
+  } finally {
+    if (activeThread === thread && version === thread.version) $('#refreshThread').disabled = false;
+  }
+}
+
+function openPostThread(id, push = true) {
+  if (!validPostID(id) || !accountSession || activeThread?.id === id) return;
+  const previous = activeThread;
+  clearTimeout(previous?.timer);
+  if (push) history.pushState({speedyThread: true}, '', threadURL(id));
+  activeThread = {
+    id, version: 0, parents: [], replies: [],
+    returnScroll: previous?.returnScroll ?? window.scrollY,
+    needsTimeline: previous?.needsTimeline ?? !livePosts.length
+  };
+  requestNumber++;
+  stopLiveStream();
+  document.body.classList.add('thread-view');
+  $('#thread').hidden = false;
+  $('#threadContent').replaceChildren();
+  $('#heading').textContent = 'Thread';
+  $('#subtitle').textContent = 'Post and replies';
+  $('#threadBack').focus({preventScroll: true});
+  window.scrollTo({top: 0, behavior: 'instant'});
+  void loadPostThread(activeThread);
+}
+
+function closePostThread(restore = true) {
+  if (!activeThread) return;
+  const {timer, returnScroll, needsTimeline} = activeThread;
+  clearTimeout(timer);
+  activeThread = null;
+  document.body.classList.remove('thread-view', 'thread-composing');
+  $('#thread').hidden = true;
+  $('#threadContent').replaceChildren();
+  $('#threadStatus').textContent = '';
+  $('#refresh').disabled = false;
+  $('#loadmore').disabled = false;
+  $('#loadmore').textContent = 'Load more posts';
+  $('#feed').removeAttribute('aria-busy');
+  if (!restore) return;
+  if (needsTimeline) void loadTimeline();
+  else {
+    $('#heading').textContent = view;
+    updateTimelineSubtitle();
+    startLiveStream();
+  }
+  window.scrollTo({top: returnScroll, behavior: 'instant'});
+}
+
+$('#refreshThread').onclick = () => { if (activeThread) void loadPostThread(activeThread); };
+$('#threadBack').onclick = () => {
+  if (history.state?.speedyThread) history.back();
+  else {
+    history.replaceState(null, '', threadURL(null));
+    closePostThread();
+  }
+};
+
+window.addEventListener('popstate', () => {
+  const id = threadIDFromURL();
+  if (id) openPostThread(id, false);
+  else closePostThread();
+});
+
 function paintProfileImages(account, name) {
   const initials = name.slice(0, 2).toUpperCase();
   const staticAvatar = safeURL(account.avatar_static);
@@ -349,11 +527,26 @@ function paintProfileImages(account, name) {
 }
 
 function paintAccount(){const name=me.display_name||me.username;$('#profile b').textContent=name;$('#profile small').textContent='@'+me.acct;paintProfileImages(me, name);$('#draft').placeholder=`What's on your mind, ${name}?`;$('.demo').innerHTML='<span class="dot"></span><span id="connectedLabel"></span> <button id="accountButton">Account / sign out</button>';$('#connectedLabel').textContent='Connected to '+new URL(accountSession.origin).hostname;$('#accountButton').onclick=openAccount;$('#signinTop').textContent='Account';$('.composerbottom>span').innerHTML='<label>Post visibility <select id="visibility"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private" selected>Followers only</option></select></label>';$('#search').placeholder='Filter loaded posts';$('.note').innerHTML='Connected directly to your Mastodon server.<br>Account data stays in this tab.';$('#loadmore').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));}
-async function connect(){me=(await api('/api/v1/accounts/verify_credentials')).data;if(!me.id)throw Error('Could not verify your Mastodon account.');paintAccount();await loadTimeline()}
-async function finishLogin(){const params=new URLSearchParams(location.search);try{if(params.has('code')||params.has('error')){history.replaceState({},'',location.pathname);let pending;try{pending=JSON.parse(sessionStorage.getItem('swift-oauth-pending'))}catch{}sessionStorage.removeItem('swift-oauth-pending');if(!pending||pending.state!==params.get('state')||Date.now()-pending.created>900000)throw Error('Sign-in expired or could not be verified. Please start again.');if(params.has('error'))throw Error('Sign-in was cancelled. You can try again whenever you’re ready.');const result=(await request(pending.origin,'/oauth/token',{method:'POST',body:{grant_type:'authorization_code',code:params.get('code'),client_id:pending.clientId,client_secret:pending.clientSecret,redirect_uri:pending.redirect,code_verifier:pending.verifier}})).data;if(!result.access_token)throw Error('Your server did not return an access token.');accountSession={origin:pending.origin,clientId:pending.clientId,clientSecret:pending.clientSecret,token:result.access_token};sessionStorage.setItem('swift-account',JSON.stringify(accountSession))}else{accountSession=JSON.parse(sessionStorage.getItem('swift-account')||'null')}if(accountSession)await connect()}catch(error){$('#liveerror').textContent=error.message;if(!me){accountSession=null;sessionStorage.removeItem('swift-account')}openAccount();authMessage(error.message)}}
-async function logout(){stopLiveStream();const button=$('#signout');button.disabled=true;let failed=false;try{await request(accountSession.origin,'/oauth/revoke',{method:'POST',body:{client_id:accountSession.clientId,client_secret:accountSession.clientSecret,token:accountSession.token}})}catch{failed=true}requestNumber++;sessionStorage.removeItem('swift-account');sessionStorage.removeItem('swift-oauth-pending');sessionStorage.removeItem('swift-draft');if(failed){$('#signedName').textContent='Signed out locally. Your server could not revoke access. You can revoke speedy-fedi under Preferences → Account → Authorized apps on your server.';accountSession=null;me=null;$('#signout').textContent='Back to demo';$('#signout').disabled=false;$('#signout').onclick=()=>location.replace(location.pathname);$('#accountClose').onclick=()=>location.replace(location.pathname);livePosts=[];$('#feed').innerHTML='';return}location.replace(location.pathname)}
+async function connect(){me=(await api('/api/v1/accounts/verify_credentials')).data;if(!me.id)throw Error('Could not verify your Mastodon account.');paintAccount();const id=threadIDFromURL();if(id)openPostThread(id,false);else await loadTimeline()}
+async function finishLogin(){const params=new URLSearchParams(location.search);try{if(params.has('code')||params.has('error')){history.replaceState({},'',location.pathname);let pending;try{pending=JSON.parse(sessionStorage.getItem('swift-oauth-pending'))}catch{}sessionStorage.removeItem('swift-oauth-pending');if(!pending||pending.state!==params.get('state')||Date.now()-pending.created>900000)throw Error('Sign-in expired or could not be verified. Please start again.');if(params.has('error'))throw Error('Sign-in was cancelled. You can try again whenever you’re ready.');const result=(await request(pending.origin,'/oauth/token',{method:'POST',body:{grant_type:'authorization_code',code:params.get('code'),client_id:pending.clientId,client_secret:pending.clientSecret,redirect_uri:pending.redirect,code_verifier:pending.verifier}})).data;if(!result.access_token)throw Error('Your server did not return an access token.');accountSession={origin:pending.origin,clientId:pending.clientId,clientSecret:pending.clientSecret,token:result.access_token};sessionStorage.setItem('swift-account',JSON.stringify(accountSession));if(validPostID(pending.postID))history.replaceState(null,'',threadURL(pending.postID))}else{accountSession=JSON.parse(sessionStorage.getItem('swift-account')||'null')}if(accountSession)await connect();else if(threadIDFromURL())openAccount()}catch(error){$('#liveerror').textContent=error.message;if(!me){accountSession=null;sessionStorage.removeItem('swift-account')}openAccount();authMessage(error.message)}}
+async function logout(){stopLiveStream();closePostThread(false);const button=$('#signout');button.disabled=true;let failed=false;try{await request(accountSession.origin,'/oauth/revoke',{method:'POST',body:{client_id:accountSession.clientId,client_secret:accountSession.clientSecret,token:accountSession.token}})}catch{failed=true}requestNumber++;sessionStorage.removeItem('swift-account');sessionStorage.removeItem('swift-oauth-pending');sessionStorage.removeItem('swift-draft');if(failed){$('#signedName').textContent='Signed out locally. Your server could not revoke access. You can revoke speedy-fedi under Preferences → Account → Authorized apps on your server.';accountSession=null;me=null;$('#signout').textContent='Back to demo';$('#signout').disabled=false;$('#signout').onclick=()=>location.replace(location.pathname);$('#accountClose').onclick=()=>location.replace(location.pathname);livePosts=[];$('#feed').innerHTML='';return}location.replace(location.pathname)}
 // Capture live interactions before the isolated demo handlers run.
-document.addEventListener('click',async event=>{if(!accountSession||!me)return;const target=event.target;const navButton=target.closest('[data-view]'), tabButton=target.closest('[data-tab]'), action=target.closest('[data-liveaction]'), media=target.closest('[data-media]');if(navButton){event.stopImmediatePropagation();if(navButton.dataset.view==='Settings'){$('#modal').showModal();return}view=navButton.dataset.view;$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();return}if(tabButton){event.stopImmediatePropagation();tab=tabButton.dataset.tab;if(view!=='Live')view='Home';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b===tabButton));await loadTimeline();return}if(target.closest('#refresh')){event.stopImmediatePropagation();await loadTimeline();return}if(target.closest('#profile')){event.stopImmediatePropagation();openAccount();return}if(target.closest('[data-search]')){event.stopImmediatePropagation();$('#search').value=target.closest('[data-search]').dataset.search;renderLive();return}if(media){event.stopImmediatePropagation();loadMedia(media);return}if(action){event.stopImmediatePropagation();const id=action.dataset.id;const p=livePosts.map(p=>p.reblog||p).find(p=>p.id===id);if(!p)return;const type=action.dataset.liveaction;if(type==='reply'){replyTo=p.id;$('#draft').value='@'+p.account.acct+' ';$('#replylabel').textContent='Replying to @'+p.account.acct;$('#cancelreply').hidden=false;$('#visibility').value=['private','direct'].includes(p.visibility)?'private':'unlisted';if(p.visibility==='direct'){toast('Open the original post to reply privately.');replyTo=null;$('#draft').value='';$('#replylabel').textContent='';$('#cancelreply').hidden=true;return}$('#draft').dispatchEvent(new Event('input'));$('#draft').focus();$('.composer').scrollIntoView({behavior:'smooth'});return}action.disabled=true;try{const endpoint=type==='boost'?(p.reblogged?'unreblog':'reblog'):type==='favourite'?(p.favourited?'unfavourite':'favourite'):(p.bookmarked?'unbookmark':'bookmark');const {data}=await api(`/api/v1/statuses/${encodeURIComponent(id)}/${endpoint}`,{method:'POST'});const fresh=data.reblog||data;livePosts=livePosts.map(w=>(w.reblog||w).id===id?(w.reblog?{...w,reblog:fresh}:fresh):w);renderLive()}catch(error){toast(error.message);action.disabled=false}return}if(target.closest('#post')){event.stopImmediatePropagation();const status=$('#draft').value.trim();if(!status)return;const button=$('#post');button.disabled=true;const visibility=$('#visibility').value;const signature=JSON.stringify([status,visibility,replyTo]);if(!pendingPost||pendingPost.signature!==signature)pendingPost={signature,key:crypto.randomUUID()};try{await api('/api/v1/statuses',{method:'POST',headers:{'Idempotency-Key':pendingPost.key},body:{status,visibility,...(replyTo?{in_reply_to_id:replyTo}:{})}});pendingPost=null;replyTo=null;$('#replylabel').textContent='';$('#cancelreply').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));if(view!=='Live')view='Home';$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();toast('Published to Mastodon.')}catch(error){$('#liveerror').textContent=error.message}finally{button.disabled=false}}},true);
+document.addEventListener('click',async event=>{if(!accountSession||!me)return;const target=event.target;
+  const threadLink = target.closest('[data-open-thread]');
+  const clickedPost = target.closest('#feed article[data-status], #threadContent article[data-status]');
+  const interactive = target.closest('a,button,input,textarea,select,label,summary,[contenteditable]');
+  const postID = threadLink?.dataset.openThread || (!interactive && clickedPost?.dataset.status);
+  if (validPostID(postID) && event.button === 0 && !event.metaKey && !event.ctrlKey &&
+      !event.shiftKey && !event.altKey && !window.getSelection()?.toString()) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openPostThread(postID);
+    return;
+  }
+  if (activeThread && target.closest('#compose')) {
+    document.body.classList.add('thread-composing');
+  }
+const navButton=target.closest('[data-view]'), tabButton=target.closest('[data-tab]'), action=target.closest('[data-liveaction]'), media=target.closest('[data-media]');if(navButton){event.stopImmediatePropagation();if(navButton.dataset.view==='Settings'){$('#modal').showModal();return}if(activeThread){history.replaceState(null,'',threadURL(null));closePostThread(false)}view=navButton.dataset.view;$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();return}if(tabButton){event.stopImmediatePropagation();tab=tabButton.dataset.tab;if(view!=='Live')view='Home';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b===tabButton));await loadTimeline();return}if(target.closest('#refresh')){event.stopImmediatePropagation();await loadTimeline();return}if(target.closest('#profile')){event.stopImmediatePropagation();openAccount();return}if(target.closest('[data-search]')){event.stopImmediatePropagation();$('#search').value=target.closest('[data-search]').dataset.search;renderLive();return}if(media){event.stopImmediatePropagation();loadMedia(media);return}if(action){event.stopImmediatePropagation();const id=action.dataset.id;const p=displayedPosts().map(p=>p.reblog||p).find(p=>p.id===id);if(!p)return;const type=action.dataset.liveaction;if(type==='reply'){replyTo=p.id;$('#draft').value='@'+p.account.acct+' ';$('#replylabel').textContent='Replying to @'+p.account.acct;$('#cancelreply').hidden=false;$('#visibility').value=['private','direct'].includes(p.visibility)?'private':'unlisted';if(p.visibility==='direct'){toast('Open the original post to reply privately.');replyTo=null;$('#draft').value='';$('#replylabel').textContent='';$('#cancelreply').hidden=true;return}if(activeThread)document.body.classList.add('thread-composing');$('#draft').dispatchEvent(new Event('input'));$('#draft').focus();$('.composer').scrollIntoView({behavior:'smooth'});return}action.disabled=true;try{const endpoint=type==='boost'?(p.reblogged?'unreblog':'reblog'):type==='favourite'?(p.favourited?'unfavourite':'favourite'):(p.bookmarked?'unbookmark':'bookmark');const {data}=await api(`/api/v1/statuses/${encodeURIComponent(id)}/${endpoint}`,{method:'POST'});const fresh=data.reblog||data;const replace=w=>(w.reblog||w).id===id?(w.reblog?{...w,reblog:fresh}:fresh):w;livePosts=livePosts.map(replace);if(activeThread?.post){activeThread.post=replace(activeThread.post);activeThread.parents=activeThread.parents.map(replace);activeThread.replies=activeThread.replies.map(replace)}renderLive()}catch(error){toast(error.message);action.disabled=false}return}if(target.closest('#post')){event.stopImmediatePropagation();const status=$('#draft').value.trim();if(!status)return;const button=$('#post');button.disabled=true;const visibility=$('#visibility').value;const signature=JSON.stringify([status,visibility,replyTo]);if(!pendingPost||pendingPost.signature!==signature)pendingPost={signature,key:crypto.randomUUID()};try{await api('/api/v1/statuses',{method:'POST',headers:{'Idempotency-Key':pendingPost.key},body:{status,visibility,...(replyTo?{in_reply_to_id:replyTo}:{})}});pendingPost=null;replyTo=null;$('#replylabel').textContent='';$('#cancelreply').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));if(activeThread){document.body.classList.remove('thread-composing');await loadPostThread(activeThread)}else{if(view!=='Live')view='Home';$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline()}toast('Published to Mastodon.')}catch(error){$('#liveerror').textContent=error.message}finally{button.disabled=false}}},true);
 document.addEventListener('input',e=>{if(accountSession&&e.target.id==='search'){e.stopImmediatePropagation();renderLive()}},true);
 document.addEventListener('change',e=>{if(!accountSession)return;const id=e.target.id.replace('modal','');if(['compact','saver'].includes(id)){e.stopImmediatePropagation();state[id]=e.target.checked;save();renderLive()}},true);
 $('#signinTop').onclick=openAccount;$('#accountClose').onclick=()=>$('#accountDialog').close();$('#signinForm').onsubmit=startLogin;$('#signout').onclick=logout;$('#loadmore').onclick=()=>loadTimeline(true);$('#cancelreply').onclick=()=>{replyTo=null;$('#replylabel').textContent='';$('#cancelreply').hidden=true};

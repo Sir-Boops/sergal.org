@@ -74,3 +74,20 @@
 .timeline-avatar-image.loaded {
   visibility: visible;
 }
+
+article[data-status] { cursor: pointer; }
+.thread-link { text-decoration: none; }
+.thread-link:hover { text-decoration: underline; }
+.thread-view :is(.tabs, .demo, #feed, #loadmore, #refresh, footer),
+.thread-view:not(.thread-composing) .composer { display: none; }
+.thread-controls { display: flex; justify-content: space-between; gap: 12px; padding: 0 25px 12px; }
+.thread-controls button {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+#threadStatus { margin: 0 25px 12px; color: var(--muted); }
+#threadStatus:empty { display: none; }
+#threadContent h2 { margin: 0; padding: 18px 25px; border-bottom: 1px solid var(--line); font-size: 16px; }
+#threadContent section + section { border-top: 4px solid var(--bg); }
