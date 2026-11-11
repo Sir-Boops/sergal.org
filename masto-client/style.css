@@ -171,3 +171,13 @@ article[data-status] { cursor: pointer; }
 .account-profile-counts { color: var(--muted); }
 
 #profileFollow { margin: 4px 12px 4px 0; }
+
+.post-date-link { flex-shrink: 0; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+.thread-link-keyboard:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
