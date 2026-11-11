@@ -49,7 +49,7 @@ function timelineAvatar(account, name) {
   return `<span class="avatar timeline-avatar" aria-hidden="true"><span>${initials}</span>${image}</span>`;
 }
 
-$('#feed').addEventListener('load', event => {
+$('main').addEventListener('load', event => {
   if (event.target.classList.contains('timeline-avatar-image')) {
     event.target.classList.add('loaded');
   }
