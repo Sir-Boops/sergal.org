@@ -21,28 +21,6 @@ function authMessage(text){$('#autherror').textContent=text}
 function openAccount(){ $('#accountTitle').textContent=me?'Your Mastodon account':'Sign in to Mastodon';$('#signinForm').hidden=!!me;$('#signedAccount').hidden=!me;$('#signedName').textContent=me?`@${me.acct.includes('@')?me.acct:me.acct+'@'+new URL(accountSession.origin).hostname}`:'';$('#accountDialog').showModal() }
 async function startLogin(event){event.preventDefault();const button=$('#signinSubmit');button.disabled=true;authMessage('Connecting to your server…');try{const origin=serverOrigin($('#instance').value);sessionStorage.setItem('swift-storage-check','1');sessionStorage.removeItem('swift-storage-check');const metadata=(await request(origin,'/.well-known/oauth-authorization-server')).data;if(!metadata.code_challenge_methods_supported?.includes('S256'))throw Error('This client requires a Mastodon server with PKCE support (Mastodon 4.3 or newer).');const redirect=location.origin+'/masto-client/';const app=(await request(origin,'/api/v1/apps',{method:'POST',body:{client_name:'Swift Mastodon Client',redirect_uris:redirect,scopes:SCOPES,website:location.origin}})).data;if(!app.client_id||!app.client_secret)throw Error('Your server did not return application credentials.');const verifier=randomString(), state=randomString();const pending={origin,clientId:app.client_id,clientSecret:app.client_secret,redirect,verifier,state,created:Date.now()};sessionStorage.setItem('swift-oauth-pending',JSON.stringify(pending));const params=new URLSearchParams({response_type:'code',client_id:app.client_id,redirect_uri:redirect,scope:SCOPES,state,code_challenge:await challenge(verifier),code_challenge_method:'S256'});location.assign(origin+'/oauth/authorize?'+params)}catch(error){authMessage(error.message);button.disabled=false}}
 function plainContent(html){const doc=new DOMParser().parseFromString(html||'','text/html');doc.querySelectorAll('script,style').forEach(n=>n.remove());doc.querySelectorAll('br').forEach(n=>n.replaceWith('\n'));doc.querySelectorAll('p').forEach(n=>n.append('\n\n'));return doc.body.textContent.trim()}
-const postImageObserver = typeof IntersectionObserver === 'function'
-  ? new IntersectionObserver(entries => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        postImageObserver.unobserve(entry.target);
-        startPostImage(entry.target);
-      }
-    }, { rootMargin: '800px 0px' })
-  : null;
-
-function startPostImage(image) {
-  image.src = image.dataset.preview;
-  delete image.dataset.preview;
-}
-
-function queuePostImages(images) {
-  for (const image of images) {
-    if (postImageObserver) postImageObserver.observe(image);
-    else startPostImage(image);
-  }
-}
-
 function imagePreview(media) {
   return safeURL(media.preview_url) || safeURL(media.url);
 }
@@ -55,7 +33,7 @@ function attachmentMarkup(media, post, requiresReveal) {
     if (requiresReveal) {
       return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}">▧ ${esc(media.description || 'Load image')}</button>`;
     }
-    return `<img class="photo" data-preview="${esc(preview)}" alt="${description}" decoding="async" referrerpolicy="no-referrer">`;
+    return `<img class="photo" src="${esc(preview)}" loading="eager" alt="${description}" decoding="async" referrerpolicy="no-referrer">`;
   }
   const url = safeURL(media.url);
   return url ? `<a class="media-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(media.type)} attachment ↗</a>` : '';
@@ -67,13 +45,11 @@ function renderLive(appendedPosts) {
   if (appendedPosts && !$('#search').value && !feed.querySelector('.empty')) {
     const page = document.createElement('template');
     page.innerHTML = appendedPosts.map(statusMarkup).join('');
-    const images = page.content.querySelectorAll('[data-preview]');
     feed.append(page.content);
-    queuePostImages(images);
     $('#loadmore').hidden = !nextPage;
     return;
   }
-  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver']){ $('#'+k).checked=state[k];$('#modal'+k).checked=state[k] }$('#heading').textContent=view;$('#subtitle').textContent=view==='Home'?'Your people. Your pace.':view==='Explore'?'Conversations across your server.':'Saved on your Mastodon account.';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account.acct} ${p.account.display_name}`.toLowerCase().includes(q)});postImageObserver?.disconnect();feed.innerHTML=posts.map(statusMarkup).join('')||'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>';$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent='';queuePostImages(feed.querySelectorAll('[data-preview]'))}
+  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver']){ $('#'+k).checked=state[k];$('#modal'+k).checked=state[k] }$('#heading').textContent=view;$('#subtitle').textContent=view==='Home'?'Your people. Your pace.':view==='Explore'?'Conversations across your server.':'Saved on your Mastodon account.';document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account.acct} ${p.account.display_name}`.toLowerCase().includes(q)});feed.innerHTML=posts.map(statusMarkup).join('')||'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>';$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent=''}
 function loadMedia(button) {
   const post = livePosts.map(wrapper => wrapper.reblog || wrapper)
     .find(post => post.id === button.dataset.media);
@@ -127,7 +103,6 @@ async function loadTimeline(more = false) {
     nextPage = null;
     autoLoadPaused = false;
     loadMore.hidden = true;
-    postImageObserver?.disconnect();
     feed.innerHTML = '<div class="empty">Loading your timeline…</div>';
   }
   try {
