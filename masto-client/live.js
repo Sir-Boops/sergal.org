@@ -164,19 +164,69 @@ const notificationLabels = {
   moderation_warning: 'sent a moderation notice'
 };
 
-function timelineRowMarkup(row, prioritizeImages) {
-  if (view !== 'Notifications') return statusMarkup(row, prioritizeImages);
-  const actor = row.account;
-  const name = actor?.display_name || actor?.username || 'Mastodon';
-  const profile = safeURL(actor?.url);
-  const label = customEmojiMarkup(name, actor?.emojis);
-  const identity = profile
+function notificationKey(row) {
+  return row.type === 'favourite' && row.reblog?.id
+    ? 'likes:' + row.reblog.id : 'notification:' + row.id;
+}
+
+function groupNotifications(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = notificationKey(row);
+    let group = groups.get(key);
+    if (!group) {
+      group = {...row, key, actors: [], actorKeys: new Set()};
+      groups.set(key, group);
+    }
+    const actor = row.account;
+    const actorKey = actor?.id || actor?.acct || row.id;
+    if (actor && !group.actorKeys.has(actorKey)) {
+      group.actorKeys.add(actorKey);
+      group.actors.push(actor);
+    }
+  }
+  return [...groups.values()];
+}
+
+function notificationIdentity(actor) {
+  const name = actor.display_name || actor.username || actor.acct || 'Mastodon';
+  const profile = safeURL(actor.url);
+  const label = customEmojiMarkup(name, actor.emojis);
+  return profile
     ? `<a href="${esc(profile)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
+}
+
+function notificationHeading(row) {
+  const actor = row.account;
+  const names = row.actors.slice(0, 3).map(notificationIdentity);
+  const extra = row.actors.length - names.length;
+  if (extra > 0) names.push(extra + (extra === 1 ? ' other' : ' others'));
+  const identity = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names.at(-1)
+    : names[0] || 'Mastodon';
   const action = Object.hasOwn(notificationLabels, row.type)
     ? notificationLabels[row.type] : 'sent a notification';
-  return `<section class="notification-row"><div class="notification-heading">${actor ? profileAvatar(actor, name) : ''}
-    <div><strong>${identity}</strong> ${action}<br><time datetime="${esc(row.created_at)}">${esc(new Date(row.created_at).toLocaleString())}</time></div></div>
+  return `<div class="notification-heading">${actor ? profileAvatar(actor, actor.display_name || actor.username || 'Mastodon') : ''}
+    <div><strong>${identity}</strong> ${action}<br><time datetime="${esc(row.created_at)}">${esc(new Date(row.created_at).toLocaleString())}</time></div></div>`;
+}
+
+function timelineRowMarkup(row, prioritizeImages) {
+  if (view !== 'Notifications') return statusMarkup(row, prioritizeImages);
+  return `<section class="notification-row" data-notification-key="${esc(row.key)}" data-actor-count="${row.actors.length}">
+    ${notificationHeading(row)}
     ${row.reblog ? statusMarkup(row.reblog, prioritizeImages) : ''}</section>`;
+}
+
+function notificationRowsToAppend(feed) {
+  const existing = new Map([...feed.children].map(card => [card.dataset.notificationKey, card]));
+  return groupNotifications(livePosts).filter(row => {
+    const card = existing.get(row.key);
+    if (!card) return true;
+    if (Number(card.dataset.actorCount) !== row.actors.length) {
+      card.querySelector('.notification-heading').outerHTML = notificationHeading(row);
+      card.dataset.actorCount = String(row.actors.length);
+    }
+    return false;
+  });
 }
 
 function offerNotificationAccess() {
@@ -197,14 +247,15 @@ function renderLive(appendedPosts, prioritizeImages = false) {
   const feed = $('#feed');
   if (appendedPosts && !$('#search').value && !feed.querySelector('.empty')) {
     const page = document.createElement('template');
-    page.innerHTML = appendedPosts.map(post => timelineRowMarkup(post, prioritizeImages)).join('');
+    const rows = view === 'Notifications' ? notificationRowsToAppend(feed) : appendedPosts;
+    page.innerHTML = rows.map(post => timelineRowMarkup(post, prioritizeImages)).join('');
     const images = page.content.querySelectorAll('[data-home-preview]');
     feed.append(page.content);
     if (prioritizeImages) loadHomeImages(images);
     $('#loadmore').hidden = !nextPage;
     return;
   }
-  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver']){ $('#'+k).checked=state[k];$('#modal'+k).checked=state[k] }$('#heading').textContent=view;updateTimelineSubtitle();document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account?.acct||''} ${p.account?.display_name||''}`.toLowerCase().includes(q)});feed.innerHTML=posts.map(post=>timelineRowMarkup(post,prioritizeImages)).join('')||(view==='Notifications'?'<div class="empty">No notifications to show.</div>':'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>');$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent='';
+  if(!accountSession)return;document.body.classList.toggle('compact',state.compact);for(const k of ['compact','saver']){ $('#'+k).checked=state[k];$('#modal'+k).checked=state[k] }$('#heading').textContent=view;updateTimelineSubtitle();document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const q=$('#search').value.toLowerCase();const posts=livePosts.filter(w=>{let p=w.reblog||w;return !q||`${plainContent(p.content)} ${p.account?.acct||''} ${p.account?.display_name||''}`.toLowerCase().includes(q)});const rows=view==='Notifications'?groupNotifications(posts):posts;feed.innerHTML=rows.map(post=>timelineRowMarkup(post,prioritizeImages)).join('')||(view==='Notifications'?'<div class="empty">No notifications to show.</div>':'<div class="empty">No posts to show.<br>Try refreshing or clearing your search.</div>');$('#loadmore').hidden=!nextPage; $('footer').firstChild.textContent='';
   if (prioritizeImages) loadHomeImages(feed.querySelectorAll('[data-home-preview]'));
 }
 function loadMedia(button) {
