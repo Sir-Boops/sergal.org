@@ -139,7 +139,7 @@ function attachmentMarkup(media, post, requiresReveal, prioritizeImages, fullMed
     if (!attachmentSource(media, 'url') && !attachmentSource(media, 'remote_url') &&
         !(media.type === 'image' && imagePreview(media))) return externalNotice;
     if (requiresReveal) {
-      return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" ${inline ? 'data-inline-media' : ''}>▧ ${esc(media.description || 'Load media')}</button>`;
+      return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" ${inline ? 'data-inline-media' : ''} ${media.type === 'image' ? 'data-warning-image' : ''}>▧ ${esc(media.description || 'Load media')}</button>`;
     }
     return originalMediaMarkup(media, inline, prioritizeImages, post.id);
   }
@@ -204,7 +204,7 @@ function postDateMarkup(post, originalURL) {
     <a class="thread-link thread-link-keyboard" ${thread}>Open post and replies</a>`;
 }
 
-function statusMarkup(wrapper, prioritizeImages = false, fullMedia = false){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${customEmojiMarkup(plainContent(p.content),p.emojis)}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,state.saver||(fullMedia===true?!!p.filtered?.length:hidden),prioritizeImages===true,fullMedia===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${customEmojiMarkup(wrapper.account.display_name||wrapper.account.username,wrapper.account.emojis)} boosted</small>`:''}<div class="posttop">${profileAvatar(a, name)}<div class="author"><b>${customEmojiMarkup(name,a.emojis)}</b><small>@${esc(a.acct)}</small></div>${postDateMarkup(p,link)}</div><div class="body">${hidden?`<details><summary>${customEmojiMarkup(p.spoiler_text||'Sensitive or filtered content',p.emojis)} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${esc(p.replies_count ?? 0)}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${esc(p.reblogs_count ?? 0)}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>${favouriteIcon(!!p.favourited)}</span>${esc(p.favourites_count ?? 0)}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
+function statusMarkup(wrapper, prioritizeImages = false, fullMedia = false){const p=wrapper.reblog||wrapper;const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||p.filtered?.length;const contents=`<div class="livebody">${customEmojiMarkup(plainContent(p.content),p.emojis)}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,state.saver||(fullMedia===true?!!p.filtered?.length:hidden),prioritizeImages===true,fullMedia===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${customEmojiMarkup(wrapper.account.display_name||wrapper.account.username,wrapper.account.emojis)} boosted</small>`:''}<div class="posttop">${profileAvatar(a, name)}<div class="author"><b>${customEmojiMarkup(name,a.emojis)}</b><small>@${esc(a.acct)}</small></div>${postDateMarkup(p,link)}</div><div class="body">${hidden?`<details data-post-warning><summary>${customEmojiMarkup(p.spoiler_text||'Sensitive or filtered content',p.emojis)} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${esc(p.replies_count ?? 0)}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${esc(p.reblogs_count ?? 0)}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>${favouriteIcon(!!p.favourited)}</span>${esc(p.favourites_count ?? 0)}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
 function startHomeImage(image, priority) {
   image.fetchPriority = priority;
   image.src = image.dataset.homePreview;
@@ -351,6 +351,13 @@ function loadMedia(button) {
     button.replaceWith(template.content);
   }
 }
+function revealWarningImages(details) {
+  if (!details.open || !details.matches('details[data-post-warning]')) return;
+  details.querySelectorAll('[data-warning-image]').forEach(loadMedia);
+}
+
+$('main').addEventListener('toggle', event => revealWarningImages(event.target), true);
+
 function timelinePath(){if(view==='Notifications')return '/api/v1/notifications';if(view==='Bookmarks')return '/api/v1/bookmarks';if(view==='Favourites')return '/api/v1/favourites';if(view==='Explore'||tab==='Federated')return '/api/v1/timelines/public';if(tab==='Local')return '/api/v1/timelines/public?local=true';return '/api/v1/timelines/home'}
 function nextLink(header,origin){const part=(header||'').split(',').find(s=>/rel="next"/.test(s));const match=part?.match(/<([^>]+)>/);if(!match)return null;try{const u=new URL(match[1]);return u.origin===origin&&u.pathname.startsWith('/api/v1/')?u.pathname+u.search:null}catch{return null}}
 const AUTO_LOAD_THRESHOLD = 0.4;
