@@ -228,8 +228,9 @@ function loadHomeImages(images) {
 }
 
 function updateTimelineSubtitle() {
+  syncHomeLiveControl();
   $('.tabs').hidden = view === 'Notifications';
-  if (view === 'Live') {
+  if (homeLiveActive()) {
     updateLiveSubtitle();
     return;
   }
@@ -367,7 +368,7 @@ let autoLoadPaused = false;
 let scrollCheckQueued = false;
 
 function canAutoLoad() {
-  return !activeThread && view !== 'Live' && me && nextPage && !autoLoadPaused && !$('#loadmore').disabled && !$('#search').value.trim();
+  return !activeThread && !homeLiveActive() && me && nextPage && !autoLoadPaused && !$('#loadmore').disabled && !$('#search').value.trim();
 }
 
 window.addEventListener('scroll', () => {
@@ -387,7 +388,7 @@ async function loadTimeline(more = false) {
   if (more && (!nextPage || loadMore.disabled)) return;
   const ticket = ++requestNumber;
   const path = more ? nextPage : timelinePath();
-  const pageCount = !more && (view === 'Home' || view === 'Notifications') ? 3 : 1;
+  const pageCount = !more && !homeLiveActive() && (view === 'Home' || view === 'Notifications') ? 3 : 1;
   let url = more ? path : path + (path.includes('?') ? '&' : '?') + 'limit=20';
   let loadedPages = 0;
   const refresh = $('#refresh');
@@ -399,6 +400,7 @@ async function loadTimeline(more = false) {
   else loadMore.textContent = 'Load more posts';
   feed.setAttribute('aria-busy', 'true');
   if (!more) {
+    syncHomeLiveControl();
     livePosts = [];
     nextPage = null;
     autoLoadPaused = false;
@@ -426,7 +428,7 @@ async function loadTimeline(more = false) {
       autoLoadPaused = (more || page > 0) && fresh.length === 0;
       renderLive(more || page > 0 ? fresh : undefined, pageCount > 1);
       loadedPages++;
-      if (autoLoadPaused) break;
+      if (autoLoadPaused || homeLiveActive()) break;
       url = nextPage;
     }
   } catch (error) {
@@ -449,7 +451,7 @@ async function loadTimeline(more = false) {
       loadMore.disabled = false;
       loadMore.textContent = 'Load more posts';
       feed.removeAttribute('aria-busy');
-      if (!more) startLiveStream();
+      startLiveStream();
     }
   }
 }
@@ -472,7 +474,7 @@ function updateLiveSubtitle() {
 
 function setLiveStatus(message) {
   liveStatus = message;
-  if (view === 'Live' && !activeThread) updateLiveSubtitle();
+  if (homeLiveActive() && !activeThread) updateLiveSubtitle();
 }
 
 function stopLiveStream() {
@@ -487,7 +489,7 @@ function stopLiveStream() {
 }
 
 function startLiveStream() {
-  if (activeThread || view !== 'Live' || !accountSession || liveConnection) return;
+  if (activeThread || !homeLiveActive() || !accountSession || liveConnection) return;
   const connection = {session: accountSession, stream: liveStreamName(), delay: 1_000, pendingPosts: new Map()};
   liveConnection = connection;
   setLiveStatus('Connecting to the live feed…');
@@ -1207,9 +1209,22 @@ document.addEventListener('click',async event=>{if(!accountSession||!me)return;c
   if (activeThread && target.closest('#compose')) {
     document.body.classList.add('thread-composing');
   }
-const navButton=target.closest('[data-view]'), tabButton=target.closest('[data-tab]'), action=target.closest('[data-liveaction]'), media=target.closest('[data-media]');if(navButton){event.stopImmediatePropagation();if(navButton.dataset.view==='Settings'){$('#modal').showModal();return}if(activeThread){history.replaceState(null,'',threadURL(null));closePostThread(false)}view=navButton.dataset.view;$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();return}if(tabButton){event.stopImmediatePropagation();tab=tabButton.dataset.tab;if(view!=='Live')view='Home';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b===tabButton));await loadTimeline();return}if(target.closest('#refresh')){event.stopImmediatePropagation();await loadTimeline();return}if(target.closest('#profile')){event.stopImmediatePropagation();openAccount();return}if(target.closest('[data-search]')){event.stopImmediatePropagation();$('#search').value=target.closest('[data-search]').dataset.search;renderLive();return}if(media){event.stopImmediatePropagation();loadMedia(media);return}if(action){event.stopImmediatePropagation();const id=action.dataset.id;const p=displayedPosts().map(p=>p.reblog||p).find(p=>p.id===id);if(!p)return;const type=action.dataset.liveaction;if(type==='reply'){replyTo=p.id;$('#draft').value='@'+p.account.acct+' ';$('#replylabel').textContent='Replying to @'+p.account.acct;$('#cancelreply').hidden=false;$('#visibility').value=['private','direct'].includes(p.visibility)?'private':'unlisted';if(p.visibility==='direct'){toast('Open the original post to reply privately.');replyTo=null;$('#draft').value='';$('#replylabel').textContent='';$('#cancelreply').hidden=true;return}if(activeThread)document.body.classList.add('thread-composing');$('#draft').dispatchEvent(new Event('input'));$('#draft').focus();$('.composer').scrollIntoView({behavior:'smooth'});return}await toggleLiveReaction(action,p,type);return}if(target.closest('#post')){event.stopImmediatePropagation();const status=$('#draft').value.trim();if(!status)return;const button=$('#post');button.disabled=true;const visibility=$('#visibility').value;const signature=JSON.stringify([status,visibility,replyTo]);if(!pendingPost||pendingPost.signature!==signature)pendingPost={signature,key:crypto.randomUUID()};try{await api('/api/v1/statuses',{method:'POST',headers:{'Idempotency-Key':pendingPost.key},body:{status,visibility,...(replyTo?{in_reply_to_id:replyTo}:{})}});pendingPost=null;replyTo=null;$('#visibility').value='public';$('#replylabel').textContent='';$('#cancelreply').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));if(activeThread){document.body.classList.remove('thread-composing');await loadPostThread(activeThread)}else{if(view!=='Live')view='Home';$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline()}toast('Published to Mastodon.')}catch(error){$('#liveerror').textContent=error.message}finally{button.disabled=false}}},true);
+const navButton=target.closest('[data-view]'), tabButton=target.closest('[data-tab]'), action=target.closest('[data-liveaction]'), media=target.closest('[data-media]');if(navButton){event.stopImmediatePropagation();if(navButton.dataset.view==='Settings'){$('#modal').showModal();return}if(activeThread){history.replaceState(null,'',threadURL(null));closePostThread(false)}view=navButton.dataset.view;$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();return}if(tabButton){event.stopImmediatePropagation();tab=tabButton.dataset.tab;view='Home';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b===tabButton));await loadTimeline();return}if(target.closest('#refresh')){event.stopImmediatePropagation();await loadTimeline();return}if(target.closest('#profile')){event.stopImmediatePropagation();openAccount();return}if(target.closest('[data-search]')){event.stopImmediatePropagation();$('#search').value=target.closest('[data-search]').dataset.search;renderLive();return}if(media){event.stopImmediatePropagation();loadMedia(media);return}if(action){event.stopImmediatePropagation();const id=action.dataset.id;const p=displayedPosts().map(p=>p.reblog||p).find(p=>p.id===id);if(!p)return;const type=action.dataset.liveaction;if(type==='reply'){replyTo=p.id;$('#draft').value='@'+p.account.acct+' ';$('#replylabel').textContent='Replying to @'+p.account.acct;$('#cancelreply').hidden=false;$('#visibility').value=['private','direct'].includes(p.visibility)?'private':'unlisted';if(p.visibility==='direct'){toast('Open the original post to reply privately.');replyTo=null;$('#draft').value='';$('#replylabel').textContent='';$('#cancelreply').hidden=true;return}if(activeThread)document.body.classList.add('thread-composing');$('#draft').dispatchEvent(new Event('input'));$('#draft').focus();$('.composer').scrollIntoView({behavior:'smooth'});return}await toggleLiveReaction(action,p,type);return}if(target.closest('#post')){event.stopImmediatePropagation();const status=$('#draft').value.trim();if(!status)return;const button=$('#post');button.disabled=true;const visibility=$('#visibility').value;const signature=JSON.stringify([status,visibility,replyTo]);if(!pendingPost||pendingPost.signature!==signature)pendingPost={signature,key:crypto.randomUUID()};try{await api('/api/v1/statuses',{method:'POST',headers:{'Idempotency-Key':pendingPost.key},body:{status,visibility,...(replyTo?{in_reply_to_id:replyTo}:{})}});pendingPost=null;replyTo=null;$('#visibility').value='public';$('#replylabel').textContent='';$('#cancelreply').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));if(activeThread){document.body.classList.remove('thread-composing');await loadPostThread(activeThread)}else{view='Home';$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline()}toast('Published to Mastodon.')}catch(error){$('#liveerror').textContent=error.message}finally{button.disabled=false}}},true);
 document.addEventListener('input',e=>{if(accountSession&&e.target.id==='search'){e.stopImmediatePropagation();renderLive()}},true);
 document.addEventListener('change',e=>{if(!accountSession)return;const id=e.target.id.replace('modal','');if(['compact','saver'].includes(id)){e.stopImmediatePropagation();state[id]=e.target.checked;$('#'+id).checked=state[id];$('#modal'+id).checked=state[id];save();renderLive()}},true);
+function toggleHomeLive() {
+  if (view !== 'Home' || activeThread) return;
+  if (!accountSession || !me) {
+    openAccount();
+    return;
+  }
+  homeLiveEnabled = !homeLiveEnabled;
+  updateTimelineSubtitle();
+  if (!homeLiveEnabled) stopLiveStream();
+  else if (!$('#refresh').disabled) startLiveStream();
+}
+
+$('#homeLive').onclick = toggleHomeLive;
 $('#signinTop').onclick=openAccount;$('#accountClose').onclick=()=>$('#accountDialog').close();$('#signinForm').onsubmit=startLogin;$('#signout').onclick=logout;$('#loadmore').onclick=()=>loadTimeline(true);$('#cancelreply').onclick=()=>{replyTo=null;$('#replylabel').textContent='';$('#cancelreply').hidden=true};
 finishLogin();
 
