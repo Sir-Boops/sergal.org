@@ -17,7 +17,18 @@ const randomString=()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Ui
 async function challenge(verifier){return btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier))))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
 async function request(origin,path,{token,method='GET',body,headers={}}={}){let response;try{response=await fetch(origin+path,{method,mode:'cors',credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(25000),headers:{...(token?{Authorization:`Bearer ${token}`} :{}),...headers},body:body?new URLSearchParams(body):undefined})}catch{throw Error('Could not reach your server. Check your connection and that it allows browser clients, then try again.')}let data;try{data=await response.json()}catch{data={}}if(!response.ok){const message=response.status===401?'Your session has expired. Sign out and sign in again.':response.status===429?'Your server is limiting requests. Please wait a moment and retry.':String(data.error_description||data.error||`Server returned ${response.status}.`);throw Object.assign(Error(message),{status:response.status})}return {data,response}}
 const api=(path,options={})=>request(accountSession.origin,path,{...options,token:accountSession.token});
-function authMessage(text){$('#autherror').textContent=text}
+function setLoadingText(element, message) {
+  const text = document.createElement('span');
+  text.className = 'loading-text';
+  text.textContent = message;
+  element.replaceChildren(text);
+}
+
+function authMessage(text, loading = false) {
+  const status = $('#autherror');
+  if (loading) setLoadingText(status, text);
+  else status.textContent = text;
+}
 function openAccount(reconnect){ const followUpgrade = reconnect === 'follows';
   const upgrade = (reconnect === true || followUpgrade) && !!accountSession;
   $('#accountTitle').textContent=upgrade?(followUpgrade?'Enable following':'Enable notifications'):me?'Your Mastodon account':'Sign in to Mastodon';
@@ -25,7 +36,7 @@ function openAccount(reconnect){ const followUpgrade = reconnect === 'follows';
   $('#instance').readOnly=upgrade;
   if(upgrade){$('#instance').value=accountSession.origin;authMessage(followUpgrade?'Approve follow access on your Mastodon server.':'Approve notification access on your Mastodon server.')}else authMessage('');
   $('#signedName').textContent=me?`@${me.acct.includes('@')?me.acct:me.acct+'@'+new URL(accountSession.origin).hostname}`:'';$('#accountDialog').showModal() }
-async function startLogin(event){event.preventDefault();const button=$('#signinSubmit');button.disabled=true;authMessage('Connecting to your server…');try{const origin=serverOrigin($('#instance').value);sessionStorage.setItem('swift-storage-check','1');sessionStorage.removeItem('swift-storage-check');const metadata=(await request(origin,'/.well-known/oauth-authorization-server')).data;if(!metadata.code_challenge_methods_supported?.includes('S256'))throw Error('This client requires a Mastodon server with PKCE support (Mastodon 4.3 or newer).');const redirect=location.origin+'/masto-client/';const app=(await request(origin,'/api/v1/apps',{method:'POST',body:{client_name:'speedy-fedi',redirect_uris:redirect,scopes:SCOPES,website:location.origin}})).data;if(!app.client_id||!app.client_secret)throw Error('Your server did not return application credentials.');const verifier=randomString(), state=randomString();const pending={origin,clientId:app.client_id,clientSecret:app.client_secret,redirect,verifier,state,postID:threadIDFromURL(),profileID:profileIDFromURL(),returnView:view==='Notifications'?'Notifications':null,created:Date.now()};sessionStorage.setItem('swift-oauth-pending',JSON.stringify(pending));const params=new URLSearchParams({response_type:'code',client_id:app.client_id,redirect_uri:redirect,scope:SCOPES,state,code_challenge:await challenge(verifier),code_challenge_method:'S256'});location.assign(origin+'/oauth/authorize?'+params)}catch(error){authMessage(error.message);button.disabled=false}}
+async function startLogin(event){event.preventDefault();const button=$('#signinSubmit');button.disabled=true;authMessage('Connecting to your server…', true);try{const origin=serverOrigin($('#instance').value);sessionStorage.setItem('swift-storage-check','1');sessionStorage.removeItem('swift-storage-check');const metadata=(await request(origin,'/.well-known/oauth-authorization-server')).data;if(!metadata.code_challenge_methods_supported?.includes('S256'))throw Error('This client requires a Mastodon server with PKCE support (Mastodon 4.3 or newer).');const redirect=location.origin+'/masto-client/';const app=(await request(origin,'/api/v1/apps',{method:'POST',body:{client_name:'speedy-fedi',redirect_uris:redirect,scopes:SCOPES,website:location.origin}})).data;if(!app.client_id||!app.client_secret)throw Error('Your server did not return application credentials.');const verifier=randomString(), state=randomString();const pending={origin,clientId:app.client_id,clientSecret:app.client_secret,redirect,verifier,state,postID:threadIDFromURL(),profileID:profileIDFromURL(),returnView:view==='Notifications'?'Notifications':null,created:Date.now()};sessionStorage.setItem('swift-oauth-pending',JSON.stringify(pending));const params=new URLSearchParams({response_type:'code',client_id:app.client_id,redirect_uri:redirect,scope:SCOPES,state,code_challenge:await challenge(verifier),code_challenge_method:'S256'});location.assign(origin+'/oauth/authorize?'+params)}catch(error){authMessage(error.message);button.disabled=false}}
 function plainContent(html) {
   const template = document.createElement('template');
   template.innerHTML = html || '';
@@ -218,7 +229,11 @@ function loadHomeImages(images) {
 
 function updateTimelineSubtitle() {
   $('.tabs').hidden = view === 'Notifications';
-  $('#subtitle').textContent=view==='Notifications'?'Activity on your Mastodon account.':view==='Live'?liveStatus:view==='Home'?'Your people. Your pace.':view==='Explore'?'Conversations across your server.':'Saved on your Mastodon account.';
+  if (view === 'Live') {
+    updateLiveSubtitle();
+    return;
+  }
+  $('#subtitle').textContent=view==='Notifications'?'Activity on your Mastodon account.':view==='Home'?'Your people. Your pace.':view==='Explore'?'Conversations across your server.':'Saved on your Mastodon account.';
 }
 
 const notificationLabels = {
@@ -380,7 +395,8 @@ async function loadTimeline(more = false) {
   $('#liveerror').textContent = '';
   refresh.disabled = true;
   loadMore.disabled = true;
-  loadMore.textContent = more ? 'Loading more posts…' : 'Load more posts';
+  if (more) setLoadingText(loadMore, 'Loading more posts…');
+  else loadMore.textContent = 'Load more posts';
   feed.setAttribute('aria-busy', 'true');
   if (!more) {
     livePosts = [];
@@ -388,7 +404,7 @@ async function loadTimeline(more = false) {
     autoLoadPaused = false;
     stopLiveStream();
     loadMore.hidden = true;
-    feed.innerHTML = '<div class="empty">Loading your timeline…</div>';
+    feed.innerHTML = '<div class="empty"><span class="loading-text">Loading your timeline…</span></div>';
   }
   try {
     const requestedPages = new Set();
@@ -448,9 +464,15 @@ function liveStreamName() {
   return 'public';
 }
 
+function updateLiveSubtitle() {
+  const subtitle = $('#subtitle');
+  if (liveStatus.endsWith('…')) setLoadingText(subtitle, liveStatus);
+  else subtitle.textContent = liveStatus;
+}
+
 function setLiveStatus(message) {
   liveStatus = message;
-  if (view === 'Live' && !activeThread) $('#subtitle').textContent = message;
+  if (view === 'Live' && !activeThread) updateLiveSubtitle();
 }
 
 function stopLiveStream() {
@@ -735,7 +757,7 @@ async function loadProfilePage(page) {
   if (page.followPending) return;
   const version = ++page.version;
   $('#refreshThread').disabled = true;
-  $('#threadStatus').textContent = 'Loading profile…';
+  setLoadingText($('#threadStatus'), 'Loading profile…');
   const path = '/api/v1/accounts/' + page.id;
   try {
     const [profile, posts, relationship] = await Promise.allSettled([
@@ -875,7 +897,7 @@ function queueThreadRefresh(thread, response, attempt) {
     $('#threadStatus').textContent = '';
     return;
   }
-  $('#threadStatus').textContent = 'Checking for newer replies…';
+  setLoadingText($('#threadStatus'), 'Checking for newer replies…');
   if (delay > 30) {
     $('#threadStatus').textContent = 'Your server is still checking for replies. Try Refresh thread later.';
     return;
@@ -904,7 +926,7 @@ async function loadPostThread(thread) {
   clearTimeout(thread.timer);
   const version = ++thread.version;
   $('#refreshThread').disabled = true;
-  $('#threadStatus').textContent = 'Loading thread…';
+  setLoadingText($('#threadStatus'), 'Loading thread…');
   const path = '/api/v1/statuses/' + thread.id;
   try {
     const [post, context] = await Promise.allSettled([api(path), api(path + '/context')]);
@@ -1101,7 +1123,7 @@ function showAccountRetry() {
   error.append(retry);
 }
 
-async function finishLogin(){const params=new URLSearchParams(location.search);try{if(params.has('code')||params.has('error')){history.replaceState({},'',location.pathname);let pending;try{pending=JSON.parse(sessionStorage.getItem('swift-oauth-pending'))}catch{}sessionStorage.removeItem('swift-oauth-pending');if(!pending||pending.state!==params.get('state')||Date.now()-pending.created>900000)throw Error('Sign-in expired or could not be verified. Please start again.');if(params.has('error'))throw Error('Sign-in was cancelled. You can try again whenever you’re ready.');const result=(await request(pending.origin,'/oauth/token',{method:'POST',body:{grant_type:'authorization_code',code:params.get('code'),client_id:pending.clientId,client_secret:pending.clientSecret,redirect_uri:pending.redirect,code_verifier:pending.verifier}})).data;if(!result.access_token)throw Error('Your server did not return an access token.');accountSession={origin:pending.origin,clientId:pending.clientId,clientSecret:pending.clientSecret,token:result.access_token};await storeAccount(accountSession);if(pending.returnView==='Notifications')view='Notifications';if(validPostID(pending.profileID))history.replaceState(null,'',threadURL(pending.profileID,'profile'));else if(validPostID(pending.postID))history.replaceState(null,'',threadURL(pending.postID))}else{accountSession=await restoreAccount()}if(accountSession){$('#liveerror').textContent='Reconnecting to Mastodon…';await connect();if($('#liveerror').textContent==='Reconnecting to Mastodon…')$('#liveerror').textContent=''}else if(threadIDFromURL()||profileIDFromURL())openAccount()}catch(error){$('#liveerror').textContent=error.message;if(accountSession&&!me&&error.status!==401){showAccountRetry();return}if(!me){if(accountSession)$('#instance').value=accountSession.origin;accountSession=null}openAccount();authMessage(error.message)}}
+async function finishLogin(){const params=new URLSearchParams(location.search);try{if(params.has('code')||params.has('error')){history.replaceState({},'',location.pathname);let pending;try{pending=JSON.parse(sessionStorage.getItem('swift-oauth-pending'))}catch{}sessionStorage.removeItem('swift-oauth-pending');if(!pending||pending.state!==params.get('state')||Date.now()-pending.created>900000)throw Error('Sign-in expired or could not be verified. Please start again.');if(params.has('error'))throw Error('Sign-in was cancelled. You can try again whenever you’re ready.');const result=(await request(pending.origin,'/oauth/token',{method:'POST',body:{grant_type:'authorization_code',code:params.get('code'),client_id:pending.clientId,client_secret:pending.clientSecret,redirect_uri:pending.redirect,code_verifier:pending.verifier}})).data;if(!result.access_token)throw Error('Your server did not return an access token.');accountSession={origin:pending.origin,clientId:pending.clientId,clientSecret:pending.clientSecret,token:result.access_token};await storeAccount(accountSession);if(pending.returnView==='Notifications')view='Notifications';if(validPostID(pending.profileID))history.replaceState(null,'',threadURL(pending.profileID,'profile'));else if(validPostID(pending.postID))history.replaceState(null,'',threadURL(pending.postID))}else{accountSession=await restoreAccount()}if(accountSession){setLoadingText($('#liveerror'),'Reconnecting to Mastodon…');await connect();if($('#liveerror').textContent==='Reconnecting to Mastodon…')$('#liveerror').textContent=''}else if(threadIDFromURL()||profileIDFromURL())openAccount()}catch(error){$('#liveerror').textContent=error.message;if(accountSession&&!me&&error.status!==401){showAccountRetry();return}if(!me){if(accountSession)$('#instance').value=accountSession.origin;accountSession=null}openAccount();authMessage(error.message)}}
 async function logout(){stopLiveStream();closePostThread(false);const button=$('#signout');button.disabled=true;let failed=false;try{await request(accountSession.origin,'/oauth/revoke',{method:'POST',body:{client_id:accountSession.clientId,client_secret:accountSession.clientSecret,token:accountSession.token}})}catch{failed=true}requestNumber++;await forgetAccount();sessionStorage.removeItem('swift-oauth-pending');sessionStorage.removeItem('swift-draft');if(failed){$('#signedName').textContent='Signed out locally. Your server could not revoke access. You can revoke speedy-fedi under Preferences → Account → Authorized apps on your server.';accountSession=null;me=null;$('#signout').textContent='Back to demo';$('#signout').disabled=false;$('#signout').onclick=()=>location.replace(location.pathname);$('#accountClose').onclick=()=>location.replace(location.pathname);livePosts=[];$('#feed').innerHTML='';return}location.replace(location.pathname)}
 // Capture live interactions before the isolated demo handlers run.
 function favouriteIcon(selected) {

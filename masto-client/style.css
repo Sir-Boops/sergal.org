@@ -198,3 +198,21 @@ article[data-status] { cursor: pointer; }
     padding-inline-start: 3px;
   }
 }
+
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+    .loading-text {
+      display: inline-block;
+      background-image: linear-gradient(110deg, currentColor 42%, #f4f7f4 50%, currentColor 58%);
+      background-size: 250% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: loading-text-shimmer 2s linear infinite;
+    }
+  }
+}
+@keyframes loading-text-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
