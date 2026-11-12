@@ -83,7 +83,7 @@ function videoMarkup(media, source, dimensions, ratio, description, inline) {
   const poster = attachmentSource(media, 'preview_url');
   return `<video controls playsinline preload="${inline ? 'none' : 'auto'}"${dimensions}${ratio}
     src="${esc(source)}"${fallback}${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${description}"></video>
-    <p class="pollnote" data-video-error hidden>Could not play this video here. Try opening the media directly.</p>`;
+    <p class="pollnote" data-video-error hidden>Could not play this video here. Tap the post date to try it on the original site.</p>`;
 }
 
 function handleVideoError(video) {
@@ -125,10 +125,10 @@ function originalMediaMarkup(media, inline = false, prioritizeImages = false, po
     player = `<audio controls preload="metadata" src="${href}" aria-label="${description}"></audio>`;
   }
 
-  const direct = isVideoAttachment(media) ? attachmentSource(media, 'remote_url') || imageURL : imageURL;
-  const directLink = inline && media.type === 'image' ? ''
-    : `<a class="media-link" href="${esc(direct)}" target="_blank" rel="noopener noreferrer">Open full-size media ↗</a>`;
-  return `<div class="original-media">${player}${directLink}</div>`;
+  if (!player) {
+    return `<a class="media-link" href="${href}" target="_blank" rel="noopener noreferrer">Open attachment ↗</a>`;
+  }
+  return `<div class="original-media">${player}</div>`;
 }
 
 function attachmentMarkup(media, post, requiresReveal, prioritizeImages, fullMedia) {
