@@ -102,7 +102,7 @@ function mediaRatioStyle(size) {
   return size ? ` style="--media-ratio:${size.width} / ${size.height};--media-width:${size.width}px"` : '';
 }
 
-function originalMediaMarkup(media, inline = false, prioritizeImages = false) {
+function originalMediaMarkup(media, inline = false, prioritizeImages = false, postID = null) {
   const url = attachmentSource(media, 'url') || attachmentSource(media, 'remote_url');
   const imageURL = url || (media.type === 'image' ? imagePreview(media) : '');
   if (!imageURL) return '';
@@ -115,7 +115,10 @@ function originalMediaMarkup(media, inline = false, prioritizeImages = false) {
 
   if (media.type === 'image') {
     const source = prioritizeImages ? `data-home-preview="${href}"` : `src="${href}"`;
-    player = `<a class="original-media-image is-loading"${ratio} href="${href}" target="_blank" rel="noopener noreferrer"><img ${source}${dimensions} alt="${description}" decoding="async" referrerpolicy="no-referrer"></a>`;
+    const destination = inline && validPostID(postID)
+      ? `href="?post=${encodeURIComponent(postID)}" data-open-thread="${esc(postID)}" aria-label="Open post and replies: ${description}"`
+      : `href="${href}" target="_blank" rel="noopener noreferrer"`;
+    player = `<a class="original-media-image is-loading"${ratio} ${destination}><img ${source}${dimensions} alt="${description}" decoding="async" referrerpolicy="no-referrer"></a>`;
   } else if (isVideoAttachment(media)) {
     player = videoMarkup(media, imageURL, dimensions, ratio, description, inline);
   } else if (media.type === 'audio') {
@@ -138,7 +141,7 @@ function attachmentMarkup(media, post, requiresReveal, prioritizeImages, fullMed
     if (requiresReveal) {
       return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" ${inline ? 'data-inline-media' : ''}>▧ ${esc(media.description || 'Load media')}</button>`;
     }
-    return originalMediaMarkup(media, inline, prioritizeImages);
+    return originalMediaMarkup(media, inline, prioritizeImages, post.id);
   }
   const url = attachmentSource(media, 'url') || attachmentSource(media, 'remote_url');
   return url ? `<a class="media-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(media.type)} attachment ↗</a>` : externalNotice;
@@ -343,7 +346,7 @@ function loadMedia(button) {
   const attachment = post?.media_attachments?.find(media => media.id === button.dataset.mediaid);
   if (!attachment) return;
   const template = document.createElement('template');
-  template.innerHTML = originalMediaMarkup(attachment, button.hasAttribute('data-inline-media'));
+  template.innerHTML = originalMediaMarkup(attachment, button.hasAttribute('data-inline-media'), false, post.id);
   if (template.content.firstElementChild) {
     button.replaceWith(template.content);
   }
