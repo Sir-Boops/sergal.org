@@ -181,3 +181,20 @@ article[data-status] { cursor: pointer; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.thread-reply-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.thread-reply-list.reply-indent {
+  margin-inline-start: 20px;
+  padding-inline-start: 8px;
+  border-inline-start: 1px solid var(--line);
+}
+@media (max-width: 650px) {
+  .thread-reply-list.reply-indent {
+    margin-inline-start: 9px;
+    padding-inline-start: 3px;
+  }
+}

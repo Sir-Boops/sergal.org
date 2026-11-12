@@ -779,6 +779,54 @@ function displayedPosts() {
   return [activeThread.post, ...activeThread.parents, ...activeThread.replies];
 }
 
+function nestedRepliesMarkup(thread) {
+  const byID = new Map();
+  for (const reply of thread.replies) {
+    if (reply.id !== thread.post.id && !byID.has(reply.id)) byID.set(reply.id, reply);
+  }
+  const children = new Map();
+  const roots = [];
+  for (const reply of byID.values()) {
+    const parent = reply.in_reply_to_id;
+    if (parent !== reply.id && byID.has(parent)) {
+      if (!children.has(parent)) children.set(parent, []);
+      children.get(parent).push(reply);
+    } else {
+      // A parent can be missing from the context returned by the server.
+      roots.push(reply);
+    }
+  }
+  if (!byID.size) return '<p class="empty">No replies yet.</p>';
+
+  const markup = ['<ol class="thread-reply-list" role="list">'];
+  const visited = new Set();
+  for (const root of [...roots, ...byID.values()]) {
+    const stack = [{reply: root, depth: 0}];
+    while (stack.length) {
+      const item = stack.pop();
+      if (typeof item === 'string') {
+        markup.push(item);
+        continue;
+      }
+      const {reply, depth} = item;
+      if (visited.has(reply.id)) continue;
+      visited.add(reply.id);
+      markup.push('<li>', statusMarkup(reply));
+      stack.push('</li>');
+      const replies = children.get(reply.id)?.filter(child => !visited.has(child.id));
+      if (!replies?.length) continue;
+      const className = depth < 3 ? 'thread-reply-list reply-indent' : 'thread-reply-list';
+      markup.push('<ol class="' + className + '" role="list">');
+      stack.push('</ol>');
+      for (let i = replies.length - 1; i >= 0; i--) {
+        stack.push({reply: replies[i], depth: depth + 1});
+      }
+    }
+  }
+  markup.push('</ol>');
+  return markup.join('');
+}
+
 function renderPostThread(thread = activeThread) {
   if (thread?.kind === 'profile') return renderProfilePage(thread);
   if (!thread?.post || activeThread !== thread) return;
@@ -793,7 +841,7 @@ function renderPostThread(thread = activeThread) {
     parents: thread.parents.length ? '<h2>Earlier in the thread</h2>' + rows(thread.parents) : '',
     post: statusMarkup(thread.post, false, true),
     replies: '<h2>Replies (' + thread.replies.length + ')</h2>' +
-      (thread.replies.length ? rows(thread.replies) : '<p class="empty">No replies yet.</p>')
+      nestedRepliesMarkup(thread)
   };
   thread.renderedSections ||= {};
   for (const [name, markup] of Object.entries(sections)) {
