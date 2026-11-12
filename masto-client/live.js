@@ -102,26 +102,7 @@ function mediaRatioStyle(size) {
   return size ? ` style="--media-ratio:${size.width} / ${size.height};--media-width:${size.width}px"` : '';
 }
 
-function timelineImageMarkup(media, post, requiresReveal, prioritizeImages, unavailable) {
-  const original = attachmentSource(media, 'url') || attachmentSource(media, 'remote_url');
-  const preview = attachmentSource(media, 'preview_url');
-  if (!original && !preview) return unavailable;
-  const description = esc(media.description || 'Post image');
-  const action = `data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" data-inline-media`;
-  if (requiresReveal) {
-    return `<button class="reveal" ${action}>▧ ${esc(media.description || 'Load image')}</button>`;
-  }
-  const source = prioritizeImages ? `data-home-preview="${esc(preview)}"` : `src="${esc(preview)}"`;
-  const thumb = preview && original && preview !== original
-    ? `<img ${source} alt="" loading="eager" decoding="async" referrerpolicy="no-referrer">` : '';
-  return `<div class="original-media timeline-image">
-    <button class="original-media-image timeline-image-preview"${mediaRatioStyle(mediaDimensions(media))} type="button" ${action} aria-label="Load full image: ${description}">
-      ${thumb}<span>Load image</span>
-    </button>
-  </div>`;
-}
-
-function originalMediaMarkup(media, inline = false) {
+function originalMediaMarkup(media, inline = false, prioritizeImages = false) {
   const url = attachmentSource(media, 'url') || attachmentSource(media, 'remote_url');
   const imageURL = url || (media.type === 'image' ? imagePreview(media) : '');
   if (!imageURL) return '';
@@ -133,7 +114,8 @@ function originalMediaMarkup(media, inline = false) {
   const ratio = mediaRatioStyle(size);
 
   if (media.type === 'image') {
-    player = `<a class="original-media-image is-loading"${ratio} href="${href}" target="_blank" rel="noopener noreferrer"><img src="${href}"${dimensions} alt="${description}" decoding="async" referrerpolicy="no-referrer"></a>`;
+    const source = prioritizeImages ? `data-home-preview="${href}"` : `src="${href}"`;
+    player = `<a class="original-media-image is-loading"${ratio} href="${href}" target="_blank" rel="noopener noreferrer"><img ${source}${dimensions} alt="${description}" decoding="async" referrerpolicy="no-referrer"></a>`;
   } else if (isVideoAttachment(media)) {
     player = videoMarkup(media, imageURL, dimensions, ratio, description, inline);
   } else if (media.type === 'audio') {
@@ -147,19 +129,16 @@ function originalMediaMarkup(media, inline = false) {
 }
 
 function attachmentMarkup(media, post, requiresReveal, prioritizeImages, fullMedia) {
-  const inlineVideo = !fullMedia && isVideoAttachment(media);
+  const inline = !fullMedia && (media.type === 'image' || isVideoAttachment(media));
   const externalNotice = state.externalMedia !== true && safeURL(media.remote_url)
     ? '<p class="pollnote">External media is off. You can enable it in Settings.</p>' : '';
-  if (!fullMedia && media.type === 'image') {
-    return timelineImageMarkup(media, post, requiresReveal, prioritizeImages, externalNotice);
-  }
-  if (fullMedia || inlineVideo) {
+  if (fullMedia || inline) {
     if (!attachmentSource(media, 'url') && !attachmentSource(media, 'remote_url') &&
         !(media.type === 'image' && imagePreview(media))) return externalNotice;
     if (requiresReveal) {
-      return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" ${inlineVideo ? 'data-inline-media' : ''}>▧ ${esc(media.description || 'Load media')}</button>`;
+      return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" ${inline ? 'data-inline-media' : ''}>▧ ${esc(media.description || 'Load media')}</button>`;
     }
-    return originalMediaMarkup(media, inlineVideo);
+    return originalMediaMarkup(media, inline, prioritizeImages);
   }
   const url = attachmentSource(media, 'url') || attachmentSource(media, 'remote_url');
   return url ? `<a class="media-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(media.type)} attachment ↗</a>` : externalNotice;
@@ -366,8 +345,7 @@ function loadMedia(button) {
   const template = document.createElement('template');
   template.innerHTML = originalMediaMarkup(attachment, button.hasAttribute('data-inline-media'));
   if (template.content.firstElementChild) {
-    const target = button.closest('.timeline-image') || button;
-    target.replaceWith(template.content);
+    button.replaceWith(template.content);
   }
 }
 function timelinePath(){if(view==='Notifications')return '/api/v1/notifications';if(view==='Bookmarks')return '/api/v1/bookmarks';if(view==='Favourites')return '/api/v1/favourites';if(view==='Explore'||tab==='Federated')return '/api/v1/timelines/public';if(tab==='Local')return '/api/v1/timelines/public?local=true';return '/api/v1/timelines/home'}
