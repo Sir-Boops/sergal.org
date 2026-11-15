@@ -261,3 +261,47 @@ article[data-status] { cursor: pointer; }
   background: var(--bg);
 }
 
+
+.composer > div { min-width: 0; }
+
+.emoji-suggestions {
+  max-height: 11rem;
+  margin: 0 0 8px;
+  padding: 4px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised, #f0f0f0);
+}
+
+.emoji-suggestions button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.emoji-suggestions button:is(:hover, [aria-selected="true"]) {
+  background: var(--selected, #dedede);
+}
+
+.emoji-preview {
+  display: grid;
+  place-items: center;
+  flex: 0 0 1.5rem;
+  height: 1.5rem;
+  font-size: 1.125rem;
+}
+
+.emoji-preview img {
+  max-width: 1.5rem;
+  max-height: 1.5rem;
+}
