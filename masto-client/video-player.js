@@ -17,6 +17,26 @@ function videoPlayerMarkup(video) {
   const QUICK_HIDE_MS = 350;
   const TAP_HIDE_MS = 2000;
   const hideTimers = new WeakMap();
+  const viewportObserver = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver(entries => {
+      for (const {target: video, isIntersecting} of entries) {
+        const mode = video.webkitPresentationMode;
+        if (isIntersecting || video.paused || video.ended ||
+            document.fullscreenElement?.contains(video) || video.webkitDisplayingFullscreen ||
+            document.pictureInPictureElement === video || mode === 'picture-in-picture' ||
+            mode === 'fullscreen') continue;
+        video.pause();
+        // A video removed during rerendering may not send a pause event to main.
+        viewportObserver.unobserve(video);
+      }
+    })
+    : null;
+
+  function observePlayback(video) {
+    if (!viewportObserver || video.paused || video.ended) return;
+    viewportObserver.unobserve(video);
+    viewportObserver.observe(video);
+  }
 
   function showControls(player, delay) {
     clearTimeout(hideTimers.get(player));
@@ -103,10 +123,12 @@ function videoPlayerMarkup(video) {
     syncPlayback(player, video);
     syncFullscreen(player, video);
     showControls(player, QUICK_HIDE_MS);
+    observePlayback(video);
   });
 
   for (const event of ['pause', 'ended', 'error', 'emptied']) {
     onVideo(event, (player, video) => {
+      viewportObserver?.unobserve(video);
       syncPlayback(player, video);
       showControls(player);
     });
@@ -114,13 +136,21 @@ function videoPlayerMarkup(video) {
   for (const event of ['timeupdate', 'durationchange', 'emptied']) onVideo(event, syncProgress);
   onVideo('volumechange', syncVolume);
   onVideo('loadedmetadata', syncFullscreen);
-  onVideo('webkitendfullscreen', player => showControls(player, TAP_HIDE_MS));
+  onVideo('webkitendfullscreen', (player, video) => {
+    showControls(player, TAP_HIDE_MS);
+    observePlayback(video);
+  });
+  for (const event of ['leavepictureinpicture', 'webkitpresentationmodechanged']) {
+    onVideo(event, (_, video) => observePlayback(video));
+  }
 
   main.addEventListener('fullscreenchange', event => {
     const player = event.target.closest?.('[data-video-player]');
     if (!player) return;
-    syncFullscreen(player, player.querySelector('video'));
+    const video = player.querySelector('video');
+    syncFullscreen(player, video);
     showControls(player, TAP_HIDE_MS);
+    observePlayback(video);
   });
 
   main.addEventListener('click', event => {
