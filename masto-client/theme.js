@@ -14,7 +14,7 @@
   function applyAppearance() {
     const dark = preference === 'dark' || (preference === 'system' && systemTheme.matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    document.querySelector('meta[name="theme-color"]').content = dark ? '#111815' : '#f6f8f5';
+    document.querySelector('meta[name="theme-color"]').content = dark ? '#151515' : '#f4f4f4';
   }
 
   applyAppearance();
