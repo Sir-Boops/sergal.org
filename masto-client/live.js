@@ -126,7 +126,7 @@ function originalMediaMarkup(media, inline = false, prioritizeImages = false, po
   }
 
   if (!player) {
-    return `<a class="media-link" href="${href}" target="_blank" rel="noopener noreferrer">Open attachment ↗</a>`;
+    return `<a class="media-link" href="${href}" target="_blank" rel="noopener noreferrer">Open attachment ${iconMarkup('arrow-up-right')}</a>`;
   }
   return `<div class="original-media">${player}</div>`;
 }
@@ -139,12 +139,12 @@ function attachmentMarkup(media, post, requiresReveal, prioritizeImages, fullMed
     if (!attachmentSource(media, 'url') && !attachmentSource(media, 'remote_url') &&
         !(media.type === 'image' && imagePreview(media))) return externalNotice;
     if (requiresReveal) {
-      return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" ${inline ? 'data-inline-media' : ''} ${media.type === 'image' ? 'data-warning-image' : ''}>▧ ${esc(media.description || 'Load media')}</button>`;
+      return `<button class="reveal" data-media="${esc(post.id)}" data-mediaid="${esc(media.id)}" ${inline ? 'data-inline-media' : ''} ${media.type === 'image' ? 'data-warning-image' : ''}>${iconMarkup('eye')} ${esc(media.description || 'Load media')}</button>`;
     }
     return originalMediaMarkup(media, inline, prioritizeImages, post.id);
   }
   const url = attachmentSource(media, 'url') || attachmentSource(media, 'remote_url');
-  return url ? `<a class="media-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(media.type)} attachment ↗</a>` : externalNotice;
+  return url ? `<a class="media-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open ${esc(media.type)} attachment ${iconMarkup('arrow-up-right')}</a>` : externalNotice;
 }
 
 function timelineAvatar(account, name) {
@@ -214,7 +214,7 @@ function activePostFilters(post) {
   });
 }
 
-function statusMarkup(wrapper, prioritizeImages = false, fullMedia = false){const p=wrapper.reblog||wrapper;const filters=activePostFilters(p);if(filters.some(result=>result.filter.filter_action==='hide'))return '<div class="empty">Post hidden by your filters.</div>'; const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||filters.length;const contents=`<div class="livebody">${customEmojiMarkup(plainContent(p.content),p.emojis)}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,state.saver||(fullMedia===true?!!filters.length:hidden),prioritizeImages===true,fullMedia===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">⇄ ${customEmojiMarkup(wrapper.account.display_name||wrapper.account.username,wrapper.account.emojis)} boosted</small>`:''}<div class="posttop">${profileAvatar(a, name)}<div class="author"><b>${customEmojiMarkup(name,a.emojis)}</b><small>@${esc(a.acct)}</small></div>${postDateMarkup(p,link)}</div><div class="body">${hidden?`<details data-post-warning><summary>${customEmojiMarkup(p.spoiler_text||filters.map(result=>result.filter.title).filter(Boolean).join(', ')||'Sensitive content',p.emojis)} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply"><span>↩</span>${esc(p.replies_count ?? 0)}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}><span>⇄</span>${esc(p.reblogs_count ?? 0)}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}"><span>${favouriteIcon(!!p.favourited)}</span>${esc(p.favourites_count ?? 0)}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}"><span>▱</span></button></div></article>`}
+function statusMarkup(wrapper, prioritizeImages = false, fullMedia = false){const p=wrapper.reblog||wrapper;const filters=activePostFilters(p);if(filters.some(result=>result.filter.filter_action==='hide'))return '<div class="empty">Post hidden by your filters.</div>'; const a=p.account;const name=a.display_name||a.username;const link=safeURL(p.url);const hidden=!!p.spoiler_text||p.sensitive||filters.length;const contents=`<div class="livebody">${customEmojiMarkup(plainContent(p.content),p.emojis)}</div>${(p.media_attachments||[]).map(media=>attachmentMarkup(media,p,state.saver||(fullMedia===true?!!filters.length:hidden),prioritizeImages===true,fullMedia===true)).join('')}${p.poll?'<p class="pollnote">Poll · open the original post to view or vote.</p>':''}`;return `<article class="post" data-status="${esc(p.id)}" data-wrapper="${esc(wrapper.id)}">${wrapper.reblog?`<small class="boostnote">${iconMarkup('repeat')} ${customEmojiMarkup(wrapper.account.display_name||wrapper.account.username,wrapper.account.emojis)} boosted</small>`:''}<div class="posttop">${profileAvatar(a, name)}<div class="author"><b>${customEmojiMarkup(name,a.emojis)}</b><small>@${esc(a.acct)}</small></div>${postDateMarkup(p,link)}</div><div class="body">${hidden?`<details data-post-warning><summary>${customEmojiMarkup(p.spoiler_text||filters.map(result=>result.filter.title).filter(Boolean).join(', ')||'Sensitive content',p.emojis)} · show post</summary>${contents}</details>`:contents}</div><div class="actions"><button data-liveaction="reply" data-id="${esc(p.id)}" aria-label="Reply">${iconMarkup('arrow-back-up')}${esc(p.replies_count ?? 0)}</button><button data-liveaction="boost" data-id="${esc(p.id)}" aria-label="Boost" aria-pressed="${!!p.reblogged}" class="${p.reblogged?'on':''}" ${['private','direct'].includes(p.visibility)?'disabled':''}>${iconMarkup('repeat')}${esc(p.reblogs_count ?? 0)}</button><button data-liveaction="favourite" data-id="${esc(p.id)}" aria-label="Favourite" aria-pressed="${!!p.favourited}" class="${p.favourited?'on':''}">${iconMarkup(toggleIcon('heart', !!p.favourited))}${esc(p.favourites_count ?? 0)}</button><button data-liveaction="bookmark" data-id="${esc(p.id)}" aria-label="Bookmark" aria-pressed="${!!p.bookmarked}" class="${p.bookmarked?'on':''}">${iconMarkup(toggleIcon('bookmark', !!p.bookmarked))}</button></div></article>`}
 function startHomeImage(image, priority) {
   image.fetchPriority = priority;
   image.src = image.dataset.homePreview;
@@ -752,7 +752,7 @@ function renderProfilePage(page) {
     ${bio ? `<p class="account-profile-bio">${bio}</p>` : ''}
     <p class="account-profile-counts">${esc(account.followers_count ?? 0)} followers · ${esc(account.following_count ?? 0)} following</p>
     ${page.id !== me?.id ? '<button type="button" class="primary" id="profileFollow"></button>' : ''}
-    ${original ? `<a class="original" href="${esc(original)}" target="_blank" rel="noopener noreferrer">Open on home instance ↗</a>` : ''}
+    ${original ? `<a class="original" href="${esc(original)}" target="_blank" rel="noopener noreferrer">Open on home instance ${iconMarkup('arrow-up-right')}</a>` : ''}
   </section><section><h2>Recent posts</h2>
     ${posts || '<p class="empty">No posts available.</p>'}</section>`;
   const button = $('#profileFollow');
@@ -977,7 +977,7 @@ function openPostThread(id, push = true, kind = 'post') {
   $('#threadContent').replaceChildren();
   const profile = kind === 'profile';
   $('#thread').setAttribute('aria-label', profile ? 'Account profile' : 'Post thread');
-  $('#refreshThread').textContent = profile ? 'Refresh profile ↻' : 'Refresh thread ↻';
+  $('#refreshThread').innerHTML = (profile ? 'Refresh profile ' : 'Refresh thread ') + iconMarkup('refresh');
   $('#heading').textContent = profile ? 'Profile' : 'Thread';
   $('#subtitle').textContent = profile ? 'Mastodon account' : 'Post and replies';
   $('#threadBack').focus({preventScroll: true});
@@ -1170,10 +1170,6 @@ async function logout() {
   location.replace(location.pathname);
 }
 // Capture live interactions before the isolated demo handlers run.
-function favouriteIcon(selected) {
-  return selected ? '♥' : '♡';
-}
-
 const reactionFields = {
   favourite: {flag: 'favourited', count: 'favourites_count', add: 'favourite', remove: 'unfavourite'},
   boost: {flag: 'reblogged', count: 'reblogs_count', add: 'reblog', remove: 'unreblog'},
@@ -1217,7 +1213,8 @@ async function toggleLiveReaction(button, post, type) {
     const count = fields.count ? fresh[fields.count] ?? 0 : undefined;
     document.querySelectorAll('button[data-liveaction="' + type + '"]').forEach(control => {
       if (control.dataset.id !== post.id) return;
-      const icon = type === 'favourite' ? favouriteIcon(selected) : undefined;
+      const icon = type === 'favourite' ? toggleIcon('heart', selected)
+        : type === 'bookmark' ? toggleIcon('bookmark', selected) : undefined;
       updateReactionButton(control, selected, count, icon);
     });
   } catch (error) {
