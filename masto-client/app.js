@@ -21,7 +21,7 @@ function save(){try{localStorage.setItem('swift-demo',JSON.stringify(state))}cat
 function demoAvatarColor(value) {
   return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : '#dedbd0';
 }
-const ICON_SPRITE = 'icons.svg?v=2';
+const ICON_SPRITE = 'icons.svg?v=3';
 
 function iconMarkup(name) {
   return `<svg class="ui-icon" width="24" height="24" aria-hidden="true" focusable="false"><use href="${ICON_SPRITE}#${name}"></use></svg>`;

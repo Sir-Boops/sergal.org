@@ -81,8 +81,10 @@ function videoMarkup(media, source, dimensions, ratio, description, inline) {
   const fallback = original && original !== source
     ? ` data-video-fallback="${esc(original)}"` : '';
   const poster = attachmentSource(media, 'preview_url');
-  return `<video controls playsinline preload="${inline ? 'none' : 'auto'}"${dimensions}${ratio}
-    src="${esc(source)}"${fallback}${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${description}"></video>
+  const customControls = typeof videoPlayerMarkup === 'function';
+  const video = `<video ${customControls ? '' : 'controls '}playsinline preload="${inline ? 'none' : 'auto'}"${dimensions}${ratio}
+    src="${esc(source)}"${fallback}${poster ? ` poster="${esc(poster)}"` : ''} aria-label="${description}"></video>`;
+  return `${customControls ? videoPlayerMarkup(video) : video}
     <p class="pollnote" data-video-error hidden>Could not play this video here. Tap the post date to try it on the original site.</p>`;
 }
 
@@ -95,7 +97,7 @@ function handleVideoError(video) {
     video.src = fallback;
     return;
   }
-  const message = video.parentElement?.querySelector('[data-video-error]');
+  const message = video.closest('.original-media')?.querySelector('[data-video-error]');
   if (message) message.hidden = false;
 }
 
@@ -1244,7 +1246,7 @@ document.addEventListener('click',async event=>{if(!accountSession||!me)return;c
   }
   const threadLink = target.closest('[data-open-thread]');
   const clickedPost = target.closest('#feed article[data-status], #threadContent article[data-status]');
-  const interactive = target.closest('a,button,input,textarea,select,label,summary,video,audio,[contenteditable]');
+  const interactive = target.closest('a,button,input,textarea,select,label,summary,video,audio,[data-video-player],[contenteditable]');
   const postID = threadLink?.dataset.openThread || (!interactive && clickedPost?.dataset.status);
   if (validPostID(postID) && event.button === 0 && !event.metaKey && !event.ctrlKey &&
       !event.shiftKey && !event.altKey && !window.getSelection()?.toString()) {
