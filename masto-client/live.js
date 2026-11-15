@@ -91,6 +91,7 @@ function handleVideoError(video) {
   delete video.dataset.videoFallback;
   if (fallback && state.externalMedia === true) {
     if (video.preload === 'none') video.preload = 'metadata';
+    video.loop = false;
     video.src = fallback;
     return;
   }
@@ -160,6 +161,13 @@ function finishImageLoading(image) {
   if (image.tagName !== 'IMG') return;
   image.closest('.original-media-image')?.classList.remove('is-loading');
 }
+
+// Capture duration changes from videos added anywhere in the timeline or thread.
+$('main').addEventListener('durationchange', event => {
+  const video = event.target;
+  if (video.tagName !== 'VIDEO') return;
+  video.loop = video.duration > 0 && video.duration < 3;
+}, true);
 
 $('main').addEventListener('error', event => {
   if (event.target.tagName === 'VIDEO') handleVideoError(event.target);
