@@ -38,7 +38,7 @@
     const response = await fetch('emoji-shortcodes.json?v=1');
     if (!response.ok) throw Error('Emoji list unavailable');
     const rows = await response.json();
-    return rows.map(([code, symbol]) => ({code, symbol, text: symbol}));
+    return rows.map(([code, symbol]) => ({code, symbol, text: symbol, custom: false}));
   }
 
   async function serverEmoji(origin) {
@@ -48,7 +48,7 @@
       if (!emoji?.visible_in_picker || typeof emoji.shortcode !== 'string' ||
           !shortcode.test(emoji.shortcode)) return [];
       const image = safeURL(emoji.static_url) || safeURL(emoji.url);
-      return [{code: emoji.shortcode, image, text: ':' + emoji.shortcode + ':'}];
+      return [{code: emoji.shortcode, image, text: ':' + emoji.shortcode + ':', custom: true}];
     });
   }
 
@@ -75,25 +75,29 @@
 
   function refresh() {
     if (composing || document.activeElement !== draft || draft.matches(':disabled')) return close();
-    const token = currentCode();
-    if (!token || dismissed === token.key) return close();
-
-    const standard = loadCatalogue('standard', standardEmoji);
+    // Load the server catalogue as soon as the composer is focused.
     const origin = me && accountSession?.origin;
     const custom = origin ? loadCatalogue(origin, () => serverEmoji(origin)) : [];
+
+    const token = currentCode();
+    if (!token || dismissed === token.key) return close();
+    const standard = loadCatalogue('standard', standardEmoji);
     const found = new Map();
     for (const entry of [...custom, ...standard]) {
       const code = entry.code.toLowerCase();
       const position = code.indexOf(token.query);
       if (position < 0 || found.has(code)) continue;
-      const rank = code === token.query ? 0 : position === 0 ? 1 : 2;
       if (draft.value.length - (token.end - token.start) + entry.text.length <= draft.maxLength) {
-        found.set(code, {entry, rank});
+        found.set(code, {entry, exact: code === token.query, prefix: position === 0});
       }
     }
 
-    const next = [...found.values()].sort((a, b) => a.rank - b.rank ||
-      a.entry.code.localeCompare(b.entry.code)).map(({entry}) => entry);
+    const next = [...found.values()]
+      .sort((a, b) => Number(b.exact) - Number(a.exact) ||
+        Number(b.entry.custom) - Number(a.entry.custom) ||
+        Number(b.prefix) - Number(a.prefix) ||
+        a.entry.code.localeCompare(b.entry.code))
+      .map(({entry}) => entry);
     if (!next.length) return close();
     if (matches.length === next.length && matches.every((entry, i) => entry === next[i])) return;
 
