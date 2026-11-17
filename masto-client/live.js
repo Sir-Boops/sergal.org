@@ -16,7 +16,13 @@ function serverOrigin(value) {
 }
 const randomString=()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 async function challenge(verifier){return btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier))))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
-async function request(origin,path,{token,method='GET',body,headers={},timeout=25000,signal}={}){let response;try{response=await fetch(origin+path,{method,mode:'cors',credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer',signal:signal ? (AbortSignal.any?.([signal, AbortSignal.timeout(timeout)]) ?? signal) : AbortSignal.timeout(timeout),headers:{...(token?{Authorization:`Bearer ${token}`} :{}),...headers},body:body instanceof FormData ? body : body ? new URLSearchParams(body) : undefined})}catch{throw Error('Could not reach your server. Check your connection and that it allows browser clients, then try again.')}let data;try{data=await response.json()}catch{data={}}if(!response.ok){const message=response.status===401?'Your session has expired. Sign out and sign in again.':response.status===429?'Your server is limiting requests. Please wait a moment and retry.':String(data.error_description||data.error||`Server returned ${response.status}.`);throw Object.assign(Error(message),{status:response.status})}return {data,response}}
+function serverResponseError(status, data) {
+  const message = status === 401 ? 'Your session has expired. Sign out and sign in again.'
+    : status === 429 ? 'Your server is limiting requests. Please wait a moment and retry.'
+    : String(data?.error_description || data?.error || 'Server returned ' + status + '.');
+  return Object.assign(Error(message), {status});
+}
+async function request(origin,path,{token,method='GET',body,headers={},timeout=25000,signal}={}){let response;try{response=await fetch(origin+path,{method,mode:'cors',credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer',signal:signal ? (AbortSignal.any?.([signal, AbortSignal.timeout(timeout)]) ?? signal) : AbortSignal.timeout(timeout),headers:{...(token?{Authorization:`Bearer ${token}`} :{}),...headers},body:body instanceof FormData ? body : body ? new URLSearchParams(body) : undefined})}catch{throw Error('Could not reach your server. Check your connection and that it allows browser clients, then try again.')}let data;try{data=await response.json()}catch{data={}}if(!response.ok)throw serverResponseError(response.status,data);return {data,response}}
 const api=(path,options={})=>request(accountSession.origin,path,{...options,token:accountSession.token});
 function setLoadingText(element, message) {
   const text = document.createElement('span');
@@ -1293,7 +1299,7 @@ async function publishLivePost() {
     if (!pendingPost || pendingPost.signature !== signature) {
       pendingPost = {signature, key: crypto.randomUUID()};
     }
-    composerMedia.report('Publishing…');
+    composerMedia.report('Publishing…', true);
     await request(session.origin, '/api/v1/statuses', {
       token: session.token, signal, method: 'POST', headers: {'Idempotency-Key': pendingPost.key}, body
     });

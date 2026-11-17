@@ -128,8 +128,72 @@ const composerMedia = (() => {
     render();
   }
 
-  function report(message) {
-    status.textContent = message;
+  function report(message, loading = false) {
+    if (loading) setLoadingText(status, message);
+    else status.textContent = message;
+  }
+
+  function showUploadProgress(index) {
+    report('Uploading attachment ' + (index + 1) + ' of ' + attachments.length + '…', true);
+    const progress = document.createElement('span');
+    progress.setAttribute('role', 'progressbar');
+    progress.setAttribute('aria-label', 'Attachment upload progress');
+    progress.setAttribute('aria-live', 'off');
+    status.firstElementChild.append(progress);
+
+    let lastPercent = -1;
+    return percent => {
+      if (percent === lastPercent) return;
+      lastPercent = percent;
+      progress.textContent = ' ' + percent + '%';
+      progress.setAttribute('aria-valuenow', String(percent));
+    };
+  }
+
+  function sendAttachment(session, form, signal, progress) {
+    const url = new URL('/api/v2/media', session.origin).href;
+    return new Promise((resolve, reject) => {
+      signal.throwIfAborted();
+      const xhr = new XMLHttpRequest();
+      const abort = () => xhr.abort();
+
+      // Register before open() so browsers that require this order report progress.
+      xhr.upload.addEventListener('progress', event => {
+        if (event.lengthComputable && event.total > 0) {
+          progress(Math.min(100, Math.floor(event.loaded * 100 / event.total)));
+        }
+      });
+      xhr.upload.addEventListener('load', () => progress(100));
+
+      function settle(callback, value) {
+        signal.removeEventListener('abort', abort);
+        callback(value);
+      }
+
+      xhr.onload = () => {
+        if (xhr.responseURL !== url) {
+          settle(reject, Error('Your server redirected the media upload.'));
+        } else if (xhr.status < 200 || xhr.status >= 300) {
+          settle(reject, serverResponseError(xhr.status, xhr.response));
+        } else {
+          settle(resolve, {data: xhr.response, status: xhr.status});
+        }
+      };
+      xhr.onerror = () => settle(reject, Error('Could not upload the file. Check your connection and try again.'));
+      xhr.ontimeout = () => settle(reject, Error('The upload timed out. Tap Post to retry.'));
+      xhr.onabort = () => settle(reject, signal.reason || new DOMException('Upload cancelled', 'AbortError'));
+
+      xhr.open('POST', url);
+      xhr.timeout = 300000;
+      xhr.responseType = 'json';
+      xhr.setRequestHeader('Authorization', 'Bearer ' + session.token);
+      signal.addEventListener('abort', abort, {once: true});
+      try {
+        xhr.send(form);
+      } catch (error) {
+        settle(reject, error);
+      }
+    });
   }
 
   function waitForPoll(signal) {
@@ -159,18 +223,18 @@ const composerMedia = (() => {
       signal.throwIfAborted();
       if (item.ready) continue;
       if (!item.id) {
-        report('Uploading attachment ' + (index + 1) + ' of ' + attachments.length + '…');
+        const progress = showUploadProgress(index);
         const form = new FormData();
         form.append('file', item.file);
         if (item.description.trim()) form.append('description', item.description.trim());
-        const {data, response} = await send('/api/v2/media', {method: 'POST', body: form, timeout: 300000});
+        const {data, status: uploadStatus} = await sendAttachment(session, form, signal, progress);
         signal.throwIfAborted();
         if (!validPostID(data?.id)) throw Error('Your server did not return an attachment ID.');
         item.id = data.id;
-        item.ready = response.status !== 202 && !!data.url;
+        item.ready = uploadStatus !== 202 && !!data.url;
       }
       if (!item.ready) {
-        report('Waiting for the server to process ' + item.file.name + '…');
+        report('Waiting for the server to process ' + item.file.name + '…', true);
         const deadline = Date.now() + 60000;
         while (!item.ready && Date.now() < deadline) {
           await waitForPoll(signal);
