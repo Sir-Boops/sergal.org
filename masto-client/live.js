@@ -1,7 +1,7 @@
 /* Account data stays in memory; OAuth credentials are stored on this device. */
 const SCOPES='read:accounts read:statuses read:bookmarks read:favourites read:notifications read:follows write:follows write:statuses write:bookmarks write:favourites write:media';
 let accountSession=null, me=null, livePosts=[], nextPage=null, requestNumber=0, replyTo=null, pendingPost=null;
-let accountUpgrade = null, publishController = null;
+let accountUpgrade = null, publishController = null, timelineController = null;
 const safeURL=value=>{try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password?u.href:''}catch{return ''}};
 function serverOrigin(value) {
   const input = value.trim();
@@ -22,13 +22,77 @@ function serverResponseError(status, data) {
     : String(data?.error_description || data?.error || 'Server returned ' + status + '.');
   return Object.assign(Error(message), {status});
 }
-async function request(origin,path,{token,method='GET',body,headers={},timeout=25000,signal}={}){let response;try{response=await fetch(origin+path,{method,mode:'cors',credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer',signal:signal ? (AbortSignal.any?.([signal, AbortSignal.timeout(timeout)]) ?? signal) : AbortSignal.timeout(timeout),headers:{...(token?{Authorization:`Bearer ${token}`} :{}),...headers},body:body instanceof FormData ? body : body ? new URLSearchParams(body) : undefined})}catch{throw Error('Could not reach your server. Check your connection and that it allows browser clients, then try again.')}let data;try{data=await response.json()}catch{data={}}if(!response.ok)throw serverResponseError(response.status,data);return {data,response}}
+async function request(origin, path, {token, method = 'GET', body, headers = {}, timeout = 25000, signal} = {}) {
+  const deadline = AbortSignal.timeout(timeout);
+  const fetchSignal = signal ? (AbortSignal.any?.([signal, deadline]) ?? signal) : deadline;
+  const connectionError = () => {
+    signal?.throwIfAborted();
+    const message = deadline.aborted
+      ? 'Your Mastodon server took too long to respond. Try refreshing.'
+      : 'Could not reach your server. Check your connection and that it allows browser clients, then try again.';
+    return Object.assign(Error(message), {retryable: true});
+  };
+  let response;
+  try {
+    response = await fetch(origin + path, {
+      method, mode: 'cors', credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer',
+      signal: fetchSignal, headers: {...(token ? {Authorization: 'Bearer ' + token} : {}), ...headers},
+      body: body instanceof FormData ? body : body ? new URLSearchParams(body) : undefined
+    });
+  } catch {
+    throw connectionError();
+  }
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    if (fetchSignal.aborted) throw connectionError();
+    data = {};
+  }
+  if (!response.ok) throw serverResponseError(response.status, data);
+  return {data, response};
+}
 const api=(path,options={})=>request(accountSession.origin,path,{...options,token:accountSession.token});
 function setLoadingText(element, message) {
   const text = document.createElement('span');
   text.className = 'loading-text';
   text.textContent = message;
   element.replaceChildren(text);
+}
+
+const TIMELINE_TIMEOUT_MS = 8000;
+const TIMELINE_RETRY_DELAY_MS = 1500;
+
+async function readTimelineAPI(path, signal) {
+  const session = accountSession;
+  const read = () => request(session.origin, path, {
+    token: session.token,
+    timeout: TIMELINE_TIMEOUT_MS,
+    signal: typeof AbortSignal.any === 'function' ? signal : undefined
+  });
+  try {
+    return await read();
+  } catch (error) {
+    if (signal?.aborted || accountSession !== session ||
+        !(error.retryable || [408, 500, 502, 503, 504].includes(error.status))) throw error;
+  }
+
+  const notice = $('#liveerror');
+  setLoadingText(notice, 'Server did not respond. Retrying…');
+  const retryMessage = notice.firstElementChild;
+  try {
+    await new Promise(resolve => setTimeout(resolve, TIMELINE_RETRY_DELAY_MS));
+    signal?.throwIfAborted();
+    if (accountSession !== session) throw Error('The account changed while loading.');
+    return await read();
+  } finally {
+    if (notice.firstElementChild === retryMessage) notice.textContent = '';
+  }
+}
+
+function cancelTimelineRequest() {
+  timelineController?.abort();
+  timelineController = null;
 }
 
 function authMessage(text, loading = false) {
@@ -424,6 +488,9 @@ async function loadTimeline(more = false) {
   if (activeThread) return;
   const loadMore = $('#loadmore');
   if (more && (!nextPage || loadMore.disabled)) return;
+  cancelTimelineRequest();
+  const controller = new AbortController();
+  timelineController = controller;
   const ticket = ++requestNumber;
   const path = more ? nextPage : timelinePath();
   const pageCount = !more && !homeLiveActive() && (view === 'Home' || view === 'Notifications') ? 3 : 1;
@@ -450,7 +517,7 @@ async function loadTimeline(more = false) {
     const requestedPages = new Set();
     for (let page = 0; page < pageCount && url; page++) {
       requestedPages.add(url);
-      const {data, response} = await api(url);
+      const {data, response} = await readTimelineAPI(url, controller.signal);
       if (ticket !== requestNumber || !accountSession) return;
       if (!Array.isArray(data)) throw Error('Your server returned an unexpected timeline.');
       const seen = new Set(livePosts.map(post => post.id));
@@ -484,6 +551,7 @@ async function loadTimeline(more = false) {
       renderLive();
     }
   } finally {
+    if (timelineController === controller) timelineController = null;
     if (ticket === requestNumber) {
       refresh.disabled = false;
       loadMore.disabled = false;
@@ -1002,6 +1070,7 @@ function openPostThread(id, push = true, kind = 'post') {
     needsTimeline: previous?.needsTimeline ?? !livePosts.length
   };
   requestNumber++;
+  cancelTimelineRequest();
   stopLiveStream();
   document.body.classList.add('thread-view');
   $('#thread').hidden = false;
@@ -1078,7 +1147,7 @@ function paintProfileImages(account, name) {
 
 function paintAccount(){const name=me.display_name||me.username;$('#profile b').innerHTML=customEmojiMarkup(name,me.emojis);$('#profile small').textContent='@'+me.acct;paintProfileImages(me, name);$('#draft').placeholder=`What's on your mind, ${name}?`;$('.demo').innerHTML='<span class="dot"></span><span id="connectedLabel"></span> <button id="accountButton">Account / sign out</button>';$('#connectedLabel').textContent='Connected to '+new URL(accountSession.origin).hostname;$('#accountButton').onclick=openAccount;$('#signinTop').textContent='Account';$('.composerbottom>span').innerHTML='<label>Post visibility <select id="visibility"><option value="public" selected>Public</option><option value="unlisted">Unlisted</option><option value="private">Followers only</option></select></label>';$('#search').placeholder='Filter loaded posts';$('.note').innerHTML='Connected directly to your Mastodon server.<br>Account data stays in this tab.';$('#loadmore').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));}
 async function connect(mediaDraft = null) {
-  me = (await api('/api/v1/accounts/verify_credentials')).data;
+  me = (await readTimelineAPI('/api/v1/accounts/verify_credentials')).data;
   if (!me.id) throw Error('Could not verify your Mastodon account.');
   paintAccount();
   $('#composerMedia').hidden = false;
@@ -1241,6 +1310,7 @@ async function logout() {
   composerMedia.reset();
   $('#composerMedia').hidden = true;
   requestNumber++;
+  cancelTimelineRequest();
   stopLiveStream();
   closePostThread(false);
   livePosts = [];
