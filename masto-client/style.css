@@ -48,8 +48,9 @@
   .actions button, .search, .welcomefoot, .sectionhead span, .topics small, .settings small,
   .note, .note button, footer, .empty, .reveal, .boostnote, .eyebrow),
 [data-theme="dark"] textarea::placeholder { color: var(--muted); }
-[data-theme="dark"] :is(.tags, .actions button.on, .original, .media-link, #accountButton,
+[data-theme="dark"] :is(.tags, .original, .media-link, #accountButton,
   #replylabel, .orbit span, .orbit b) { color: var(--accent); }
+[data-theme="dark"] .actions button.on { color: var(--accent); }
 [data-theme="dark"] :is(kbd, .welcomefoot, .reveal, .orbit i) { border-color: #727272; }
 [data-theme="dark"] nav button:hover { background: var(--raised); }
 [data-theme="dark"] nav button.active { background: var(--selected); color: var(--accent); }
