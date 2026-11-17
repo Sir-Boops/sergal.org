@@ -1,6 +1,7 @@
 /* Account data stays in memory; OAuth credentials are stored on this device. */
-const SCOPES='read:accounts read:statuses read:bookmarks read:favourites read:notifications read:follows write:follows write:statuses write:bookmarks write:favourites';
+const SCOPES='read:accounts read:statuses read:bookmarks read:favourites read:notifications read:follows write:follows write:statuses write:bookmarks write:favourites write:media';
 let accountSession=null, me=null, livePosts=[], nextPage=null, requestNumber=0, replyTo=null, pendingPost=null;
+let accountUpgrade = null, publishController = null;
 const safeURL=value=>{try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password?u.href:''}catch{return ''}};
 function serverOrigin(value) {
   const input = value.trim();
@@ -15,7 +16,7 @@ function serverOrigin(value) {
 }
 const randomString=()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 async function challenge(verifier){return btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier))))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
-async function request(origin,path,{token,method='GET',body,headers={}}={}){let response;try{response=await fetch(origin+path,{method,mode:'cors',credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(25000),headers:{...(token?{Authorization:`Bearer ${token}`} :{}),...headers},body:body?new URLSearchParams(body):undefined})}catch{throw Error('Could not reach your server. Check your connection and that it allows browser clients, then try again.')}let data;try{data=await response.json()}catch{data={}}if(!response.ok){const message=response.status===401?'Your session has expired. Sign out and sign in again.':response.status===429?'Your server is limiting requests. Please wait a moment and retry.':String(data.error_description||data.error||`Server returned ${response.status}.`);throw Object.assign(Error(message),{status:response.status})}return {data,response}}
+async function request(origin,path,{token,method='GET',body,headers={},timeout=25000,signal}={}){let response;try{response=await fetch(origin+path,{method,mode:'cors',credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer',signal:signal ? (AbortSignal.any?.([signal, AbortSignal.timeout(timeout)]) ?? signal) : AbortSignal.timeout(timeout),headers:{...(token?{Authorization:`Bearer ${token}`} :{}),...headers},body:body instanceof FormData ? body : body ? new URLSearchParams(body) : undefined})}catch{throw Error('Could not reach your server. Check your connection and that it allows browser clients, then try again.')}let data;try{data=await response.json()}catch{data={}}if(!response.ok){const message=response.status===401?'Your session has expired. Sign out and sign in again.':response.status===429?'Your server is limiting requests. Please wait a moment and retry.':String(data.error_description||data.error||`Server returned ${response.status}.`);throw Object.assign(Error(message),{status:response.status})}return {data,response}}
 const api=(path,options={})=>request(accountSession.origin,path,{...options,token:accountSession.token});
 function setLoadingText(element, message) {
   const text = document.createElement('span');
@@ -29,14 +30,28 @@ function authMessage(text, loading = false) {
   if (loading) setLoadingText(status, text);
   else status.textContent = text;
 }
-function openAccount(reconnect){ const followUpgrade = reconnect === 'follows';
-  const upgrade = (reconnect === true || followUpgrade) && !!accountSession;
-  $('#accountTitle').textContent=upgrade?(followUpgrade?'Enable following':'Enable notifications'):me?'Your Mastodon account':'Sign in to Mastodon';
-  $('#signinForm').hidden=!!me&&!upgrade;$('#signedAccount').hidden=!me||upgrade;
-  $('#instance').readOnly=upgrade;
-  if(upgrade){$('#instance').value=accountSession.origin;authMessage(followUpgrade?'Approve follow access on your Mastodon server.':'Approve notification access on your Mastodon server.')}else authMessage('');
-  $('#signedName').textContent=me?`@${me.acct.includes('@')?me.acct:me.acct+'@'+new URL(accountSession.origin).hostname}`:'';$('#accountDialog').showModal() }
-async function startLogin(event){event.preventDefault();const button=$('#signinSubmit');button.disabled=true;authMessage('Connecting to your server…', true);try{const origin=serverOrigin($('#instance').value);sessionStorage.setItem('swift-storage-check','1');sessionStorage.removeItem('swift-storage-check');const metadata=(await request(origin,'/.well-known/oauth-authorization-server')).data;if(!metadata.code_challenge_methods_supported?.includes('S256'))throw Error('This client requires a Mastodon server with PKCE support (Mastodon 4.3 or newer).');const redirect=location.origin+'/masto-client/';const app=(await request(origin,'/api/v1/apps',{method:'POST',body:{client_name:'speedy-fedi',redirect_uris:redirect,scopes:SCOPES,website:location.origin}})).data;if(!app.client_id||!app.client_secret)throw Error('Your server did not return application credentials.');const verifier=randomString(), state=randomString();const pending={origin,clientId:app.client_id,clientSecret:app.client_secret,redirect,verifier,state,postID:threadIDFromURL(),profileID:profileIDFromURL(),returnView:view==='Notifications'?'Notifications':null,created:Date.now()};sessionStorage.setItem('swift-oauth-pending',JSON.stringify(pending));const params=new URLSearchParams({response_type:'code',client_id:app.client_id,redirect_uri:redirect,scope:SCOPES,state,code_challenge:await challenge(verifier),code_challenge_method:'S256'});location.assign(origin+'/oauth/authorize?'+params)}catch(error){authMessage(error.message);button.disabled=false}}
+function openAccount(reconnect) {
+  const upgrades = {
+    follows: ['Enable following', 'Approve follow access on your Mastodon server.'],
+    notifications: ['Enable notifications', 'Approve notification access on your Mastodon server.'],
+    media: ['Enable media attachments', 'Reconnect to allow speedy-fedi to upload files you attach to a post.'],
+  };
+  const key = reconnect === true ? 'notifications' : reconnect;
+  const upgrade = accountSession && Object.hasOwn(upgrades, key) ? upgrades[key] : null;
+  accountUpgrade = upgrade ? key : null;
+  $('#accountTitle').textContent = upgrade?.[0] || (me ? 'Your Mastodon account' : 'Sign in to Mastodon');
+  $('#signinForm').hidden = !!me && !upgrade;
+  $('#signedAccount').hidden = !me || !!upgrade;
+  $('#instance').readOnly = !!upgrade;
+  if (upgrade) $('#instance').value = accountSession.origin;
+  authMessage(upgrade?.[1] || '');
+  $('#signedName').textContent = me ? '@' + (me.acct.includes('@') ? me.acct : me.acct + '@' + new URL(accountSession.origin).hostname) : '';
+  $('#accountDialog').showModal();
+}
+async function startLogin(event){event.preventDefault();const button=$('#signinSubmit');button.disabled=true;authMessage('Connecting to your server…', true);try{const origin=serverOrigin($('#instance').value);sessionStorage.setItem('swift-storage-check','1');sessionStorage.removeItem('swift-storage-check');const metadata=(await request(origin,'/.well-known/oauth-authorization-server')).data;if(!metadata.code_challenge_methods_supported?.includes('S256'))throw Error('This client requires a Mastodon server with PKCE support (Mastodon 4.3 or newer).');const redirect=location.origin+'/masto-client/';const app=(await request(origin,'/api/v1/apps',{method:'POST',body:{client_name:'speedy-fedi',redirect_uris:redirect,scopes:SCOPES,website:location.origin}})).data;if(!app.client_id||!app.client_secret)throw Error('Your server did not return application credentials.');const verifier=randomString(), state=randomString();const pending={origin,clientId:app.client_id,clientSecret:app.client_secret,redirect,verifier,state,postID:threadIDFromURL(),profileID:profileIDFromURL(),returnView:view==='Notifications'?'Notifications':null,scopes:SCOPES,
+    mediaDraft:accountUpgrade==='media'&&me ? {account:me.id, text:$('#draft').value,
+      visibility:$('#visibility').value, replyTo, label:$('#replylabel').textContent} : null,
+    created:Date.now()};sessionStorage.setItem('swift-oauth-pending',JSON.stringify(pending));const params=new URLSearchParams({response_type:'code',client_id:app.client_id,redirect_uri:redirect,scope:SCOPES,state,code_challenge:await challenge(verifier),code_challenge_method:'S256'});location.assign(origin+'/oauth/authorize?'+params)}catch(error){authMessage(error.message);button.disabled=false}}
 function plainContent(html) {
   const template = document.createElement('template');
   template.innerHTML = html || '';
@@ -1056,7 +1071,26 @@ function paintProfileImages(account, name) {
 }
 
 function paintAccount(){const name=me.display_name||me.username;$('#profile b').innerHTML=customEmojiMarkup(name,me.emojis);$('#profile small').textContent='@'+me.acct;paintProfileImages(me, name);$('#draft').placeholder=`What's on your mind, ${name}?`;$('.demo').innerHTML='<span class="dot"></span><span id="connectedLabel"></span> <button id="accountButton">Account / sign out</button>';$('#connectedLabel').textContent='Connected to '+new URL(accountSession.origin).hostname;$('#accountButton').onclick=openAccount;$('#signinTop').textContent='Account';$('.composerbottom>span').innerHTML='<label>Post visibility <select id="visibility"><option value="public" selected>Public</option><option value="unlisted">Unlisted</option><option value="private">Followers only</option></select></label>';$('#search').placeholder='Filter loaded posts';$('.note').innerHTML='Connected directly to your Mastodon server.<br>Account data stays in this tab.';$('#loadmore').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));}
-async function connect(){me=(await api('/api/v1/accounts/verify_credentials')).data;if(!me.id)throw Error('Could not verify your Mastodon account.');paintAccount();const profile=profileIDFromURL(),id=threadIDFromURL();if(profile)openPostThread(profile,false,'profile');else if(id)openPostThread(id,false);else await loadTimeline()}
+async function connect(mediaDraft = null) {
+  me = (await api('/api/v1/accounts/verify_credentials')).data;
+  if (!me.id) throw Error('Could not verify your Mastodon account.');
+  paintAccount();
+  $('#composerMedia').hidden = false;
+  const restoreDraft = mediaDraft?.account === me.id;
+  if (restoreDraft) {
+    $('#draft').value = mediaDraft.text;
+    $('#draft').dispatchEvent(new Event('input'));
+    $('#visibility').value = mediaDraft.visibility;
+    replyTo = mediaDraft.replyTo;
+    $('#replylabel').textContent = mediaDraft.label;
+    $('#cancelreply').hidden = !replyTo;
+  }
+  const profile = profileIDFromURL(), id = threadIDFromURL();
+  if (profile) openPostThread(profile, false, 'profile');
+  else if (id) openPostThread(id, false);
+  else await loadTimeline();
+  if (restoreDraft && activeThread) document.body.classList.add('thread-composing');
+}
 const SESSION_KEY = 'swift-account';
 const ACCOUNT_DATABASE = 'speedy-fedi-account';
 
@@ -1142,12 +1176,64 @@ function showAccountRetry() {
   error.append(retry);
 }
 
-async function finishLogin(){const params=new URLSearchParams(location.search);try{if(params.has('code')||params.has('error')){history.replaceState({},'',location.pathname);let pending;try{pending=JSON.parse(sessionStorage.getItem('swift-oauth-pending'))}catch{}sessionStorage.removeItem('swift-oauth-pending');if(!pending||pending.state!==params.get('state')||Date.now()-pending.created>900000)throw Error('Sign-in expired or could not be verified. Please start again.');if(params.has('error'))throw Error('Sign-in was cancelled. You can try again whenever you’re ready.');const result=(await request(pending.origin,'/oauth/token',{method:'POST',body:{grant_type:'authorization_code',code:params.get('code'),client_id:pending.clientId,client_secret:pending.clientSecret,redirect_uri:pending.redirect,code_verifier:pending.verifier}})).data;if(!result.access_token)throw Error('Your server did not return an access token.');accountSession={origin:pending.origin,clientId:pending.clientId,clientSecret:pending.clientSecret,token:result.access_token};await storeAccount(accountSession);if(pending.returnView==='Notifications')view='Notifications';if(validPostID(pending.profileID))history.replaceState(null,'',threadURL(pending.profileID,'profile'));else if(validPostID(pending.postID))history.replaceState(null,'',threadURL(pending.postID))}else{accountSession=await restoreAccount()}if(accountSession){setLoadingText($('#liveerror'),'Reconnecting to Mastodon…');await connect();if($('#liveerror').textContent==='Reconnecting to Mastodon…')$('#liveerror').textContent=''}else if(threadIDFromURL()||profileIDFromURL())openAccount()}catch(error){$('#liveerror').textContent=error.message;if(accountSession&&!me&&error.status!==401){showAccountRetry();return}if(!me){if(accountSession)$('#instance').value=accountSession.origin;accountSession=null}openAccount();authMessage(error.message)}}
+async function finishLogin() {
+  const params = new URLSearchParams(location.search);
+  let pending, cancelledMediaUpgrade = false;
+  try {
+    if (params.has('code') || params.has('error')) {
+      history.replaceState({}, '', location.pathname);
+      try { pending = JSON.parse(sessionStorage.getItem('swift-oauth-pending')); } catch {}
+      sessionStorage.removeItem('swift-oauth-pending');
+      if (!pending || pending.state !== params.get('state') || Date.now() - pending.created > 900000) {
+        throw Error('Sign-in expired or could not be verified. Please start again.');
+      }
+      if (params.has('error')) {
+        cancelledMediaUpgrade = !!pending.mediaDraft;
+        if (cancelledMediaUpgrade) accountSession = await restoreAccount();
+        if (!accountSession) throw Error('Sign-in was cancelled. You can try again whenever you’re ready.');
+      } else {
+        const {data: result} = await request(pending.origin, '/oauth/token', {method: 'POST', body: {
+          grant_type: 'authorization_code', code: params.get('code'), client_id: pending.clientId,
+          client_secret: pending.clientSecret, redirect_uri: pending.redirect, code_verifier: pending.verifier,
+        }});
+        if (!result.access_token) throw Error('Your server did not return an access token.');
+        accountSession = {origin: pending.origin, clientId: pending.clientId, clientSecret: pending.clientSecret,
+          token: result.access_token, scope: result.scope ?? pending.scopes ?? ''};
+        await storeAccount(accountSession);
+      }
+      if (pending.returnView === 'Notifications') view = 'Notifications';
+      if (validPostID(pending.profileID)) history.replaceState(null, '', threadURL(pending.profileID, 'profile'));
+      else if (validPostID(pending.postID)) history.replaceState(null, '', threadURL(pending.postID));
+    } else {
+      accountSession = await restoreAccount();
+    }
+    if (accountSession) {
+      setLoadingText($('#liveerror'), 'Reconnecting to Mastodon…');
+      await connect(pending?.origin === accountSession.origin ? pending.mediaDraft : null);
+      if ($('#liveerror').textContent === 'Reconnecting to Mastodon…') $('#liveerror').textContent = '';
+      if (cancelledMediaUpgrade) toast('Media access was not enabled.');
+    } else if (threadIDFromURL() || profileIDFromURL()) {
+      openAccount();
+    }
+  } catch (error) {
+    $('#liveerror').textContent = error.message;
+    if (accountSession && !me && error.status !== 401) { showAccountRetry(); return; }
+    if (!me) {
+      if (accountSession) $('#instance').value = accountSession.origin;
+      accountSession = null;
+    }
+    openAccount();
+    authMessage(error.message);
+  }
+}
 async function logout() {
   const session = accountSession;
   if (!session) return;
   accountSession = null;
   me = null;
+  publishController?.abort();
+  composerMedia.reset();
+  $('#composerMedia').hidden = true;
   requestNumber++;
   stopLiveStream();
   closePostThread(false);
@@ -1179,6 +1265,68 @@ async function logout() {
   }
   location.replace(location.pathname);
 }
+async function publishLivePost() {
+  const draft = $('#draft');
+  const status = draft.value.trim();
+  if (publishController || (!status && !composerMedia.hasFiles())) return;
+  const session = accountSession;
+  const controller = new AbortController();
+  publishController = controller;
+  const {signal} = controller;
+  const button = $('#post');
+  const visibilityControl = $('#visibility');
+  const visibility = visibilityControl.value;
+  const parent = replyTo;
+  button.disabled = true;
+  draft.readOnly = true;
+  visibilityControl.disabled = true;
+  composerMedia.setBusy(true);
+  composerMedia.report('');
+  try {
+    const ids = await composerMedia.upload(session, signal);
+    signal.throwIfAborted();
+    const body = new URLSearchParams({visibility});
+    if (status) body.set('status', status);
+    if (parent) body.set('in_reply_to_id', parent);
+    for (const id of ids) body.append('media_ids[]', id);
+    const signature = body.toString();
+    if (!pendingPost || pendingPost.signature !== signature) {
+      pendingPost = {signature, key: crypto.randomUUID()};
+    }
+    composerMedia.report('Publishing…');
+    await request(session.origin, '/api/v1/statuses', {
+      token: session.token, signal, method: 'POST', headers: {'Idempotency-Key': pendingPost.key}, body
+    });
+    if (accountSession !== session) return;
+    pendingPost = null;
+    replyTo = null;
+    visibilityControl.value = 'public';
+    $('#replylabel').textContent = '';
+    $('#cancelreply').hidden = true;
+    draft.value = '';
+    draft.dispatchEvent(new Event('input'));
+    composerMedia.reset();
+    if (activeThread) {
+      document.body.classList.remove('thread-composing');
+      await loadPostThread(activeThread);
+    } else {
+      view = 'Home';
+      $('#search').value = '';
+      document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('selected', b.dataset.tab === tab));
+      await loadTimeline();
+    }
+    if (accountSession === session) toast('Published to Mastodon.');
+  } catch (error) {
+    if (!signal.aborted) composerMedia.report(error.message);
+  } finally {
+    publishController = null;
+    button.disabled = false;
+    draft.readOnly = false;
+    visibilityControl.disabled = false;
+    composerMedia.setBusy(false);
+  }
+}
+
 // Capture live interactions before the isolated demo handlers run.
 const reactionFields = {
   favourite: {flag: 'favourited', count: 'favourites_count', add: 'favourite', remove: 'unfavourite'},
@@ -1258,7 +1406,10 @@ document.addEventListener('click',async event=>{if(!accountSession||!me)return;c
   if (activeThread && target.closest('#compose')) {
     document.body.classList.add('thread-composing');
   }
-const navButton=target.closest('[data-view]'), tabButton=target.closest('[data-tab]'), action=target.closest('[data-liveaction]'), media=target.closest('[data-media]');if(navButton){event.stopImmediatePropagation();if(navButton.dataset.view==='Settings'){$('#modal').showModal();return}if(activeThread){history.replaceState(null,'',threadURL(null));closePostThread(false)}view=navButton.dataset.view;$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();return}if(tabButton){event.stopImmediatePropagation();tab=tabButton.dataset.tab;view='Home';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b===tabButton));await loadTimeline();return}if(target.closest('#refresh')){event.stopImmediatePropagation();await loadTimeline();return}if(target.closest('#profile')){event.stopImmediatePropagation();openAccount();return}if(target.closest('[data-search]')){event.stopImmediatePropagation();$('#search').value=target.closest('[data-search]').dataset.search;renderLive();return}if(media){event.stopImmediatePropagation();loadMedia(media);return}if(action){event.stopImmediatePropagation();const id=action.dataset.id;const p=displayedPosts().map(p=>p.reblog||p).find(p=>p.id===id);if(!p)return;const type=action.dataset.liveaction;if(type==='reply'){replyTo=p.id;$('#draft').value='@'+p.account.acct+' ';$('#replylabel').textContent='Replying to @'+p.account.acct;$('#cancelreply').hidden=false;$('#visibility').value=['private','direct'].includes(p.visibility)?'private':'unlisted';if(p.visibility==='direct'){toast('Open the original post to reply privately.');replyTo=null;$('#draft').value='';$('#replylabel').textContent='';$('#cancelreply').hidden=true;return}if(activeThread)document.body.classList.add('thread-composing');$('#draft').dispatchEvent(new Event('input'));$('#draft').focus();$('.composer').scrollIntoView({behavior:'smooth'});return}await toggleLiveReaction(action,p,type);return}if(target.closest('#post')){event.stopImmediatePropagation();const status=$('#draft').value.trim();if(!status)return;const button=$('#post');button.disabled=true;const visibility=$('#visibility').value;const signature=JSON.stringify([status,visibility,replyTo]);if(!pendingPost||pendingPost.signature!==signature)pendingPost={signature,key:crypto.randomUUID()};try{await api('/api/v1/statuses',{method:'POST',headers:{'Idempotency-Key':pendingPost.key},body:{status,visibility,...(replyTo?{in_reply_to_id:replyTo}:{})}});pendingPost=null;replyTo=null;$('#visibility').value='public';$('#replylabel').textContent='';$('#cancelreply').hidden=true;$('#draft').value='';$('#draft').dispatchEvent(new Event('input'));if(activeThread){document.body.classList.remove('thread-composing');await loadPostThread(activeThread)}else{view='Home';$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline()}toast('Published to Mastodon.')}catch(error){$('#liveerror').textContent=error.message}finally{button.disabled=false}}},true);
+const navButton=target.closest('[data-view]'), tabButton=target.closest('[data-tab]'), action=target.closest('[data-liveaction]'), media=target.closest('[data-media]');if(navButton){event.stopImmediatePropagation();if(navButton.dataset.view==='Settings'){$('#modal').showModal();return}if(activeThread){history.replaceState(null,'',threadURL(null));closePostThread(false)}view=navButton.dataset.view;$('#search').value='';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===tab));await loadTimeline();return}if(tabButton){event.stopImmediatePropagation();tab=tabButton.dataset.tab;view='Home';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b===tabButton));await loadTimeline();return}if(target.closest('#refresh')){event.stopImmediatePropagation();await loadTimeline();return}if(target.closest('#profile')){event.stopImmediatePropagation();openAccount();return}if(target.closest('[data-search]')){event.stopImmediatePropagation();$('#search').value=target.closest('[data-search]').dataset.search;renderLive();return}if(media){event.stopImmediatePropagation();loadMedia(media);return}if(action){event.stopImmediatePropagation();const id=action.dataset.id;const p=displayedPosts().map(p=>p.reblog||p).find(p=>p.id===id);if(!p)return;const type=action.dataset.liveaction;if(type==='reply'){if(publishController)return;replyTo=p.id;$('#draft').value='@'+p.account.acct+' ';$('#replylabel').textContent='Replying to @'+p.account.acct;$('#cancelreply').hidden=false;$('#visibility').value=['private','direct'].includes(p.visibility)?'private':'unlisted';if(p.visibility==='direct'){toast('Open the original post to reply privately.');replyTo=null;$('#draft').value='';$('#replylabel').textContent='';$('#cancelreply').hidden=true;return}if(activeThread)document.body.classList.add('thread-composing');$('#draft').dispatchEvent(new Event('input'));$('#draft').focus();$('.composer').scrollIntoView({behavior:'smooth'});return}await toggleLiveReaction(action,p,type);return}if(target.closest('#post')) {
+  event.stopImmediatePropagation();
+  await publishLivePost();
+}},true);
 document.addEventListener('input',e=>{if(accountSession&&e.target.id==='search'){e.stopImmediatePropagation();renderLive()}},true);
 document.addEventListener('change',e=>{if(!accountSession)return;const id=e.target.id.replace('modal','');if(['compact','saver','externalMedia'].includes(id)){e.stopImmediatePropagation();state[id]=e.target.checked;$('#'+id).checked=state[id];$('#modal'+id).checked=state[id];save();renderLive()}},true);
 function toggleHomeLive() {
@@ -1274,7 +1425,7 @@ function toggleHomeLive() {
 }
 
 $('#homeLive').onclick = toggleHomeLive;
-$('#signinTop').onclick=openAccount;$('#accountClose').onclick=()=>$('#accountDialog').close();$('#signinForm').onsubmit=startLogin;$('#signout').onclick=logout;$('#loadmore').onclick=()=>loadTimeline(true);$('#cancelreply').onclick=()=>{replyTo=null;$('#replylabel').textContent='';$('#cancelreply').hidden=true};
+$('#signinTop').onclick=openAccount;$('#accountClose').onclick=()=>$('#accountDialog').close();$('#signinForm').onsubmit=startLogin;$('#signout').onclick=logout;$('#loadmore').onclick=()=>loadTimeline(true);$('#cancelreply').onclick=()=>{if(publishController)return;replyTo=null;$('#replylabel').textContent='';$('#cancelreply').hidden=true};
 finishLogin();
 
 window.addEventListener('pageshow', event => {
@@ -1282,4 +1433,3 @@ window.addEventListener('pageshow', event => {
   $('#signinSubmit').disabled = false;
   authMessage('');
 });
-

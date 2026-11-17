@@ -418,3 +418,57 @@ html {
 @media (prefers-reduced-motion: reduce) {
   .video-controls { transition: none; }
 }
+
+#composerMedia {
+  min-inline-size: 0;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.attach-media,
+#mediaAttachments button {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+}
+
+#mediaAttachments {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 8px 0 0;
+  list-style: none;
+}
+
+#mediaAttachments:empty,
+#mediaStatus:empty { display: none; }
+
+#mediaAttachments li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
+#mediaAttachments input {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+#mediaStatus { margin: 6px 0 0; color: var(--ink); font-size: 12px; }
+@media (any-pointer: coarse) {
+  #mediaAttachments input { font-size: 16px; }
+}
