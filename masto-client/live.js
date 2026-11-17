@@ -30,7 +30,7 @@ async function request(origin, path, {token, method = 'GET', body, headers = {},
     const message = deadline.aborted
       ? 'Your Mastodon server took too long to respond. Try refreshing.'
       : 'Could not reach your server. Check your connection and that it allows browser clients, then try again.';
-    return Object.assign(Error(message), {retryable: true});
+    return Object.assign(Error(message), {retryable: true, failure: deadline.aborted ? 'timeout' : 'network'});
   };
   let response;
   try {
@@ -543,6 +543,7 @@ async function loadTimeline(more = false) {
       offerNotificationAccess();
       return;
     }
+    if (!controller.signal.aborted) reportAppFailure('timeline', error);
     $('#liveerror').textContent = error.message;
     if (more || loadedPages > 0) {
       autoLoadPaused = true;
@@ -1292,7 +1293,11 @@ async function finishLogin() {
     }
   } catch (error) {
     $('#liveerror').textContent = error.message;
-    if (accountSession && !me && error.status !== 401) { showAccountRetry(); return; }
+    if (accountSession && !me && error.status !== 401) {
+      reportAppFailure('reconnect', error);
+      showAccountRetry();
+      return;
+    }
     if (!me) {
       if (accountSession) $('#instance').value = accountSession.origin;
       accountSession = null;

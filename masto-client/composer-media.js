@@ -167,6 +167,7 @@ const composerMedia = (() => {
 
       function settle(callback, value) {
         signal.removeEventListener('abort', abort);
+        if (callback === reject && !signal.aborted) reportAppFailure('upload', value);
         callback(value);
       }
 
@@ -179,8 +180,10 @@ const composerMedia = (() => {
           settle(resolve, {data: xhr.response, status: xhr.status});
         }
       };
-      xhr.onerror = () => settle(reject, Error('Could not upload the file. Check your connection and try again.'));
-      xhr.ontimeout = () => settle(reject, Error('The upload timed out. Tap Post to retry.'));
+      xhr.onerror = () => settle(reject,
+        Object.assign(Error('Could not upload the file. Check your connection and try again.'), {failure: 'network'}));
+      xhr.ontimeout = () => settle(reject,
+        Object.assign(Error('The upload timed out. Tap Post to retry.'), {failure: 'timeout'}));
       xhr.onabort = () => settle(reject, signal.reason || new DOMException('Upload cancelled', 'AbortError'));
 
       xhr.open('POST', url);
@@ -229,7 +232,11 @@ const composerMedia = (() => {
         if (item.description.trim()) form.append('description', item.description.trim());
         const {data, status: uploadStatus} = await sendAttachment(session, form, signal, progress);
         signal.throwIfAborted();
-        if (!validPostID(data?.id)) throw Error('Your server did not return an attachment ID.');
+        if (!validPostID(data?.id)) {
+          const error = Error('Your server did not return an attachment ID.');
+          reportAppFailure('upload', error);
+          throw error;
+        }
         item.id = data.id;
         item.ready = uploadStatus !== 202 && !!data.url;
       }
@@ -243,10 +250,15 @@ const composerMedia = (() => {
             item.ready = response.status === 200 && !!data?.url;
           } catch (error) {
             if ([404, 422].includes(error.status)) item.id = null;
+            if (!signal.aborted) reportAppFailure('media-processing', error);
             throw error;
           }
         }
-        if (!item.ready) throw Error('Your server is still processing the file. Tap Post again to retry.');
+        if (!item.ready) {
+          const error = Object.assign(Error('Your server is still processing the file. Tap Post again to retry.'), {failure: 'timeout'});
+          reportAppFailure('media-processing', error);
+          throw error;
+        }
       }
     }
     return attachments.map(item => item.id);
